@@ -4,7 +4,10 @@ import jakarta.persistence.*;
 
 import java.time.Instant;
 
-/** A release order flagged by the Ad Spend Auditor. Nothing is withheld automatically; an officer decides. */
+/**
+ * A release order flagged by the Ad Spend Auditor. Review states: Flagged → Sent for review → Cleared | Payment withheld | Resolved
+ * (a withheld order can later be Cleared or Resolved). Nothing is withheld automatically; an officer decides.
+ */
 @Entity
 @Table(name = "ad_flag")
 public class AdFlag {
@@ -17,4 +20,8 @@ public class AdFlag {
     public String reviewStatus;
     public String sentBy;
     public Instant sentAt;
+    /** Outcome recorded by the Deputy Director (Accounts): Cleared, Payment withheld or Resolved. */
+    @Column(length = 500) public String outcomeNote;
+    public String decidedBy;
+    public Instant decidedAt;
 }

@@ -69,7 +69,17 @@ export function Press() {
               <table className="tb">
                 <tbody>
                   {drafts.map((r) => (
-                    <tr key={r.id} className={"click" + (r.id === selId ? " on" : "")} onClick={() => setSelId(r.id === selId ? null : r.id)}>
+                    <tr key={r.id} className={"click" + (r.id === selId ? " on" : "")}
+                    tabIndex={0}
+                    aria-expanded={r.id === selId}
+                    onClick={() => setSelId(r.id === selId ? null : r.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelId(r.id === selId ? null : r.id);
+                      }
+                    }}
+                  >
                       <td>
                         <div style={{ fontWeight: 600, maxWidth: 360 }}>{r.title}</div>
                         <small style={{ color: "var(--muted)" }}>
@@ -101,7 +111,17 @@ export function Press() {
               </thead>
               <tbody>
                 {rl.map((r) => (
-                  <tr key={r.id} className={"click" + (r.id === selId ? " on" : "")} onClick={() => setSelId(r.id === selId ? null : r.id)}>
+                  <tr key={r.id} className={"click" + (r.id === selId ? " on" : "")}
+                    tabIndex={0}
+                    aria-expanded={r.id === selId}
+                    onClick={() => setSelId(r.id === selId ? null : r.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelId(r.id === selId ? null : r.id);
+                      }
+                    }}
+                  >
                     <td>
                       <div style={{ fontWeight: 600, maxWidth: 360 }}>{r.title}</div>
                       <small style={{ color: "var(--muted)" }}>

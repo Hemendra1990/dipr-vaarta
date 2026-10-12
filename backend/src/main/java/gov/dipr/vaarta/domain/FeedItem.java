@@ -21,4 +21,8 @@ public class FeedItem {
     @Column(length = 20) public String channel;
     /** Username (or bot:&lt;phone&gt;) that created the item; used to skip your own items in live updates. */
     public String createdBy;
+    /** For an escalation: who closed it, when and how (null while it is open). */
+    public String resolvedBy;
+    public Instant resolvedAt;
+    @Column(length = 500) public String resolution;
 }
