@@ -140,8 +140,10 @@ export function Users() {
                           {u.icon}
                         </span>
                         <span>
-                          <b>{u.displayName}</b>
-                          {u.self && <span className="chip"> you</span>}
+                          <b>
+                            {u.displayName}
+                            {u.self && <span className="chip">you</span>}
+                          </b>
                           <small>{u.username}</small>
                         </span>
                       </div>

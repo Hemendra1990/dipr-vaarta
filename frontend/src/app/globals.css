@@ -478,3 +478,4 @@ code.hdrs{display:block;margin-top:6px;white-space:pre-wrap;user-select:all}
 .us-temp code{flex:1;font:700 20px var(--f-mono);letter-spacing:.04em;padding:10px 12px;border-radius:10px;background:var(--surface-2);border:1px dashed var(--line);user-select:all}
 .au-pager{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-top:10px;font-size:12.5px;color:var(--muted)}
 .au-pager span{margin-right:auto}
+.dlg .ch{flex-wrap:nowrap}
