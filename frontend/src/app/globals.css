@@ -550,3 +550,10 @@ code.hdrs{display:block;margin-top:6px;white-space:pre-wrap;user-select:all}
 .sph{margin:8px 0 6px;font-size:13px}
 .sphist{margin:0 0 12px;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:8px}
 @media (max-width:560px){.spf,.spdl{grid-template-columns:1fr}}
+/* Spend: cancelled release orders */
+.spf textarea{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 9px;font:inherit;font-size:13px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink);min-width:0;width:100%;resize:vertical}
+.btn.danger{color:var(--crit);border-color:color-mix(in oklab,var(--crit) 45%,var(--line))}
+.btn.pri.danger{background:var(--crit);border-color:var(--crit);color:#fff}
+.tb tr.cxl td{color:var(--muted)}
+.tb tr.cxl td .nm{text-decoration:line-through}
+.tb tr.cxl .chip{opacity:.8}

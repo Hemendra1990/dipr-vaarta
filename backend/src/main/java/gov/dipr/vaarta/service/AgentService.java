@@ -132,10 +132,10 @@ public class AgentService {
             case "spend" -> {
                 String fy = cal.currentFy();
                 double el = cal.elapsed();
-                List<SpendOrder> cur = spend.findAll().stream().filter(s -> fy.equals(s.fy) && !"RO issued".equals(s.status)).toList();
-                double s = cur.stream().mapToDouble(x -> x.amount).sum(), p = s / el;
+                List<SpendOrder> cur = spend.findAll().stream().filter(s -> fy.equals(s.fy) && s.booked()).toList();
+                double s = cur.stream().mapToDouble(SpendOrder::spendAmount).sum(), p = s / el;
                 double b = budget.findAll().stream().filter(x -> fy.equals(x.fy)).mapToDouble(x -> x.budget).sum();
-                double dg = cur.stream().filter(x -> "Digital & social".equals(x.channel)).mapToDouble(x -> x.amount).sum();
+                double dg = cur.stream().filter(x -> "Digital & social".equals(x.channel)).mapToDouble(SpendOrder::spendAmount).sum();
                 double dgb = budget.findAll().stream().filter(x -> fy.equals(x.fy) && "Digital & social".equals(x.channel)).mapToDouble(x -> x.budget).sum();
                 steps = List.of("Reading " + String.format("%,d", spend.count()) + " release orders and " + budget.count() + " budget lines",
                         "Projecting year-end spend from the April–September run-rate", "Adjusting for Dasara, Rajyotsava and other planned campaigns",

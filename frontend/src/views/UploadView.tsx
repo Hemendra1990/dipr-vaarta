@@ -11,7 +11,7 @@ type Dataset = { id: string; title: string; group: string; module: string; schem
 type RowError = { row: number; col: string; val: string; msg: string };
 type Report = {
   uploadId: string | null; file: string; sheet: string; missing: string[]; extra: string[]; errors: RowError[]; errorCount: number;
-  total: number; badRows: number; goodCount: number; preview: Record<string, string | number>[]; existing: number;
+  total: number; badRows: number; goodCount: number; preview: Record<string, string | number>[]; existing: number; replaceCount?: number;
 };
 type Batch = {
   id: number; dataset: string; datasetTitle: string; fileName: string; mode: string; rowsImported: number; rowsSkipped: number;
@@ -37,6 +37,11 @@ export function UploadView() {
   const [done, setDone] = useState<Batch | null>(null);
   const [over, setOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Move to a wizard step; like the prototype, any earlier error message is cleared. */
+  const go = (n: number) => {
+    setStep(n);
+    setErr(null);
+  };
 
   useEffect(() => {
     if (!uploadTarget) return;
@@ -215,7 +220,7 @@ export function UploadView() {
           <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> My file follows this format
         </label>
         <div className="upacts">
-          <button className="btn pri" disabled={!ack} onClick={() => setStep(2)}>
+          <button className="btn pri" disabled={!ack} onClick={() => go(2)}>
             Continue to upload
           </button>
         </div>
@@ -245,7 +250,7 @@ export function UploadView() {
         </label>
         {err && <div className="note bad">{err}</div>}
         <div className="upacts">
-          <button className="btn" onClick={() => setStep(1)}>
+          <button className="btn" onClick={() => go(1)}>
             ← Back to format
           </button>
         </div>
@@ -341,12 +346,13 @@ export function UploadView() {
               <label>
                 <input type="radio" name="umode" value="replace" checked={mode === "replace"} onChange={() => setMode("replace")} /> Replace the existing
                 records{user.district || user.department ? ` in your scope (${user.district || user.department})` : ""} with this file
+                {res.replaceCount !== undefined ? ` · ${nIN(res.replaceCount)} records will be removed` : ""}
               </label>
             </fieldset>
           </>
         )}
         <div className="upacts">
-          <button className="btn" onClick={() => setStep(2)}>
+          <button className="btn" onClick={() => go(2)}>
             ← Choose another file
           </button>
           {res.goodCount > 0 && (
@@ -376,7 +382,7 @@ export function UploadView() {
           <button className="btn pri" onClick={() => setTab(tabOf(d))}>
             Open {tabOf(d) === "spend" ? "Spend analytics" : d.title}
           </button>
-          <button className="btn" onClick={() => setStep(2)}>
+          <button className="btn" onClick={() => go(2)}>
             Upload another file
           </button>
         </div>

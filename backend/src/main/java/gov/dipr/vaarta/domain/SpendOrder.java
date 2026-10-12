@@ -32,6 +32,23 @@ public class SpendOrder {
     @Column(length = 10) public String billDate;
     @Column(length = 10) public String paidOn;
     @Column(length = 60) public String paymentRef;
+    @Column(length = 60) public String cancelledBy;
+    @Column(length = 10) public String cancelledOn;
+    @Column(length = 300) public String cancelReason;
     /** JSON array of {at, by, action, note}, newest last. */
     @Column(length = 8000) public String history;
+
+    public static final String CANCELLED = "Cancelled";
+
+    /** Whether this order counts in spend figures at all (cancelled orders do not). */
+    public boolean counts() { return !CANCELLED.equals(status); }
+
+    /** Whether the money is spent (billed or paid) rather than only committed. */
+    public boolean booked() { return "Billed".equals(status) || "Paid".equals(status); }
+
+    /**
+     * The amount spend figures use: the bill amount once the order is billed or paid, otherwise the order amount.
+     * Seeded and uploaded rows carry no bill amount, so they keep the order amount.
+     */
+    public double spendAmount() { return booked() && billAmount != null ? billAmount : amount; }
 }
