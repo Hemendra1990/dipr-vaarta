@@ -528,3 +528,7 @@ code.hdrs{display:block;margin-top:6px;white-space:pre-wrap;user-select:all}
 .au-pager{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-top:10px;font-size:12.5px;color:var(--muted)}
 .au-pager span{margin-right:auto}
 .dlg .ch{flex-wrap:nowrap}
+
+/* WhatsApp numbers (Users & access) */
+.botnum-form{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.botnum-form input,.botnum-form select{min-width:160px}

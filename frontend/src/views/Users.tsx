@@ -4,6 +4,7 @@ import { Dialog, passwordProblem } from "@/components/PasswordDialog";
 import { api, ApiError } from "@/lib/api";
 import { useApi, useApp } from "@/lib/store";
 import type { AdminUser, UserOptions } from "@/lib/types";
+import { BotNumbers } from "./BotNumbers";
 import { ErrorNote, Loading } from "./common";
 
 /** "8 Oct 2026, 4:05 pm" in Indian time, or a dash. */
@@ -188,6 +189,7 @@ export function Users() {
           {!rows.length && <div className="empty">No users match these filters.</div>}
         </div>
       </div>
+      <BotNumbers />
       {modal?.kind === "new" && <UserForm opts={opts} onClose={() => setModal(null)} />}
       {modal?.kind === "edit" && <UserForm opts={opts} u={modal.u} onClose={() => setModal(null)} />}
       {modal?.kind === "off" && (
