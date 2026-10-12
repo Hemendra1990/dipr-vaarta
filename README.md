@@ -77,6 +77,27 @@ NODE_PATH=$(npm root -g) node tools/e2e-smoke.mjs http://localhost:3000
 
 The smoke test needs the `playwright` package installed globally (`npm i -g playwright`).
 
+## Drill-down test
+
+`tools/e2e-drill.mjs` signs in as every demo role and opens every module. It drills State → Division → District →
+Taluk with each module's own controls (hex tiles, division chips, table rows, area bars, scatter points, taluk tiles),
+then goes back up with the breadcrumb and "↑ Drill up". At each level it checks the breadcrumb, the level label and
+the address. It also checks that nothing is stuck loading, that there are no errors or failed API calls, that no
+"no data" message appears (apart from a short whitelist with reasons) and that no NaN appears. Run it with the
+backend and frontend running, on a fresh data directory:
+
+```bash
+NODE_PATH=$(npm root -g) node tools/e2e-drill.mjs http://localhost:3000            # 3 districts per division
+NODE_PATH=$(npm root -g) node tools/e2e-drill.mjs http://localhost:3000 --quick    # 1 district per division
+NODE_PATH=$(npm root -g) node tools/e2e-drill.mjs http://localhost:3000 --full     # all 31 districts
+#   --role DIO,VENDOR   --module spend,tipline   --jobs 7 (roles in parallel)
+#   --shots dir (screenshots of failing places)   --report file.json (default e2e-drill-report.json)
+```
+
+It prints a role × module × level table and exits 1 if any check fails. The address names the module and the place
+(`#tipline/Kalaburagi/Raichur/Sindhanur`), so a failing place can be opened directly. What it checks and the allowed
+empties are in `docs/notes/e2e-drill.md`.
+
 ## Sample data
 
 `backend/src/main/resources/seed/*.json` was produced by running the prototype's own data generators:

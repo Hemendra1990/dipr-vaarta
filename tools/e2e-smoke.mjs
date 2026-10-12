@@ -9,14 +9,16 @@ const BASE = process.argv[2] || "http://localhost:3000";
 const SHOTS = process.argv[3] || "";
 const ROLES = ["COMMISSIONER", "JD_NEWS", "DD_ACCOUNTS", "DIO", "DEPT_NODAL", "VENDOR", "FILM_SECTION"];
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ["--no-proxy-server"] });
 let failures = 0;
 for (const role of ROLES) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await ctx.newPage();
   const problems = [];
   page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
-  page.on("console", (m) => m.type() === "error" && problems.push("console: " + m.text()));
+  // a web font or other third-party file that cannot load (offline, proxy) is not an app error
+  const external = (m) => /^Failed to load resource/.test(m.text()) && !(m.location().url || "").startsWith(BASE);
+  page.on("console", (m) => m.type() === "error" && !external(m) && problems.push("console: " + m.text()));
   page.on("response", (r) => r.url().includes("/api/") && r.status() >= 400 && problems.push(`HTTP ${r.status()} ${r.url()}`));
   await page.goto(BASE);
   await page.locator(`input[name=stk][value=${role}]`).check({ force: true });
