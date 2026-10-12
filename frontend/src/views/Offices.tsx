@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 import { ago, cl, fmt, pct, rateTone } from "@/lib/format";
 import { label } from "@/lib/geo";
 import { useApi, useApp } from "@/lib/store";
-import type { FeedItem } from "@/lib/types";
+import type { FeedEntry, FeedItem } from "@/lib/types";
+import { feedTitle, isFresh } from "@/lib/updates";
 import { KidTable } from "./KidTable";
 import { ErrorNote, Loading } from "./common";
 
@@ -14,7 +15,7 @@ const SENT: Record<string, string> = { Positive: "good", Mixed: "warn", Negative
 
 export function Offices() {
   const { outreach: o, node: n, filters: f, geo } = useApp();
-  const { data, error } = useApi<FeedItem[]>("/offices/feed");
+  const { data, error } = useApi<FeedEntry[]>("/offices/feed");
   const [posting, setPosting] = useState(false);
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="district offices" />;
@@ -34,7 +35,12 @@ export function Offices() {
       <div className={`card ${prof ? "s8" : "s12"}`}>
         <div className="ch">
           <div>
-            <h3>Ground feed · {label(n)}</h3>
+            <h3>
+              Ground feed · {label(n)}{" "}
+              <span className="chip wa" title="District officers send field pulse, daily reports, escalations and coverage to the WhatsApp bot">
+                WhatsApp feed
+              </span>
+            </h3>
             <p>Sent by district officers and citizens over WhatsApp. Newest first.</p>
           </div>
           <button className="btn" onClick={() => setPosting(!posting)}>
@@ -45,13 +51,14 @@ export function Offices() {
         {fd.length ? (
           <ul className="feed">
             {fd.map((x) => (
-              <li key={x.id}>
+              <li key={x.id} className={isFresh("feed", x.id) ? "new" : undefined}>
                 <span className={`chip ${IC[x.type][0]}`}>{IC[x.type][1]}</span>
                 <div>
                   <p>{x.note}</p>
                   <small>
                     {x.district}
                     {x.scheme ? " · " + x.scheme : ""}
+                    {x.channel === "WhatsApp" ? " · via WhatsApp" : x.channel === "Console" ? ` · posted by ${x.author}` : ""}
                     {x.sentiment && (
                       <>
                         {" · "}
@@ -148,8 +155,7 @@ function PostUpdate({ onDone }: { onDone: () => void }) {
     if (!note.trim()) return;
     try {
       const x = await api.post<FeedItem>("/offices/feed", { type, district, scheme, sentiment, note });
-      const t = x.type === "pulse" ? "Field pulse received" : x.type === "esc" ? "Citizen escalation" : x.type === "report" ? "Daily report filed" : "Coverage uploaded";
-      toast(t, `${x.district}: ${x.note.slice(0, 80)}${x.note.length > 80 ? "…" : ""}`);
+      toast(feedTitle(x.type), `${x.district}: ${x.note.slice(0, 80)}${x.note.length > 80 ? "…" : ""}`);
       invalidate();
       onDone();
     } catch (er) {

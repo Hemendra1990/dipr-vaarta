@@ -1,25 +1,28 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HBars, KpiTile, Spark } from "@/components/charts";
 import { api } from "@/lib/api";
 import { ago, fmt, hash, pct } from "@/lib/format";
 import { CHILD_LVL, label, nodeKey } from "@/lib/geo";
 import { useApi, useApp } from "@/lib/store";
-import type { Claim } from "@/lib/types";
+import type { Claim, ClaimDetail, ClaimInfo } from "@/lib/types";
+import { isFresh } from "@/lib/updates";
 import { KidTable } from "./KidTable";
 import { ErrorNote, Loading } from "./common";
 
 const CL_ORDER = ["New", "Triaged", "Draft ready", "Published", "Escalated"];
 const TONE: Record<string, string> = { New: "ind", Triaged: "", "Draft ready": "warn", Published: "good", Escalated: "crit" };
 const CATS = ["Scheme rumour", "Fake recruitment", "Doctored circular", "Synthetic media", "Public safety", "Price rumour"];
+const VERDICTS = ["False", "Misleading", "Partly true", "True", "Unverified", "Not of public interest"];
 
 export function Tipline() {
   const app = useApp();
   const { outreach: o, node: n, filters: f, geo, user, toast, invalidate } = app;
-  const { data, error } = useApi<Claim[]>("/tipline/claims");
+  const { data, error } = useApi<ClaimInfo[]>("/tipline/claims");
   const [cf, setCf] = useState("All");
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="tipline" />;
   const m = o.M(n, f);
@@ -100,8 +103,13 @@ export function Tipline() {
       <div className="card s8">
         <div className="ch">
           <div>
-            <h3>Live claim queue · {label(n)}</h3>
-            <p>From the WhatsApp tipline, district offices and the analytics team</p>
+            <h3>
+              Live claim queue · {label(n)}{" "}
+              <span className="chip wa" title="New claims from the WhatsApp tipline appear here on their own">
+                WhatsApp feed
+              </span>
+            </h3>
+            <p>From the WhatsApp tipline, district offices and the analytics team. Select a claim for details.</p>
           </div>
           <div className="seg">
             {["All", ...CL_ORDER].map((s) => (
@@ -115,6 +123,7 @@ export function Tipline() {
           </div>
         </div>
         {adding && <NewClaim onDone={() => setAdding(false)} />}
+        {open && <ClaimPanel id={open} onClose={() => setOpen(null)} next={(c) => nextBtn(c)} />}
         {q.length ? (
           <div className="tbw">
             <table className="tb">
@@ -130,9 +139,11 @@ export function Tipline() {
               </thead>
               <tbody>
                 {q.map((c) => (
-                  <tr key={c.id}>
+                  <tr key={c.id} className={isFresh("claim", c.id) ? "new" : undefined}>
                     <td>
-                      <div style={{ fontWeight: 600, maxWidth: 320 }}>{c.text}</div>
+                      <button className="clm-open" onClick={() => setOpen(c.id)} title="Open claim details">
+                        {c.text}
+                      </button>
                       <small style={{ color: "var(--muted)" }}>
                         {c.id} · {c.lang} · {c.source} · {ago(c.receivedAt)}
                       </small>
@@ -263,5 +274,208 @@ function NewClaim({ onDone }: { onDone: () => void }) {
         Add to queue
       </button>
     </form>
+  );
+}
+
+const ACTION: Record<string, string> = {
+  "claim.create": "Received",
+  "claim.edit": "Edited",
+  "claim.Triaged": "Triaged",
+  "claim.Draft ready": "Clarification drafted",
+  "claim.Published": "Approved and published",
+  "claim.Escalated": "Routed to district administration",
+};
+
+const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+
+/** Claim detail: full text, source, forwards, history from the audit log, and verdict editing before publishing. */
+function ClaimPanel({ id, onClose, next }: { id: string; onClose: () => void; next: (c: Claim) => React.ReactNode }) {
+  const { toast, invalidate } = useApp();
+  const { data, error } = useApi<ClaimDetail>(`/tipline/claims/${encodeURIComponent(id)}`);
+  const [form, setForm] = useState<{ verdict: string; category: string; clarification: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
+
+  const c = data?.claim;
+  const startEdit = () =>
+    c && setForm({ verdict: c.verdict === "—" ? "" : c.verdict.replace("Suggested: ", ""), category: c.category, clarification: c.clarification || "" });
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!c || !form) return;
+    setSaving(true);
+    try {
+      await api.post(`/tipline/claims/${c.id}/edit`, form);
+      toast("Claim updated", `${c.id} · ${form.verdict || "no verdict yet"} · ${form.category}`);
+      setForm(null);
+      invalidate();
+    } catch (x) {
+      toast("Could not save", (x as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="cpanel-wrap" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <aside className="cpanel" role="dialog" aria-modal="true" aria-label={`Claim ${id}`}>
+        <div className="cp-head">
+          <div>
+            <h3>{id}</h3>
+            {c && (
+              <small style={{ color: "var(--muted)" }}>
+                {c.source} · received {ago(c.receivedAt)} ago
+              </small>
+            )}
+          </div>
+          <button className="iconbtn" onClick={onClose} autoFocus>
+            Close
+          </button>
+        </div>
+        {error && <ErrorNote msg={error} />}
+        {!data && !error && <Loading what="claim" />}
+        {c && data && (
+          <>
+            <span className={`chip ${TONE[c.status]}`}>{c.status}</span>
+            <p className="cp-text">{c.text}</p>
+            <dl>
+              <dt>District</dt>
+              <dd>{c.district}</dd>
+              <dt>Language</dt>
+              <dd>{c.lang}</dd>
+              <dt>Type</dt>
+              <dd>{c.category}</dd>
+              <dt>Forwards</dt>
+              <dd>{fmt(c.forwards)}</dd>
+              <dt>Source</dt>
+              <dd>
+                {c.source}
+                {c.contact ? ` · ${c.contact}` : ""}
+              </dd>
+              <dt>Verdict</dt>
+              <dd>{c.verdict}</dd>
+              {c.clarification && (
+                <>
+                  <dt>Clarification</dt>
+                  <dd>{c.clarification}</dd>
+                </>
+              )}
+              {c.approvedBy && (
+                <>
+                  <dt>Approved by</dt>
+                  <dd>{c.approvedBy}</dd>
+                </>
+              )}
+              {c.matchOf && (
+                <>
+                  <dt>Matched to</dt>
+                  <dd>{c.matchOf} · the bot replied with its verdict</dd>
+                </>
+              )}
+            </dl>
+
+            {form ? (
+              <form className="cp-form" onSubmit={save} style={{ marginTop: 16 }}>
+                <label>
+                  Verdict
+                  <input className="nc-in" list="cp-verdicts" value={form.verdict} maxLength={120} onChange={(e) => setForm({ ...form, verdict: e.target.value })} />
+                  <datalist id="cp-verdicts">
+                    {VERDICTS.map((v) => (
+                      <option key={v} value={v} />
+                    ))}
+                  </datalist>
+                </label>
+                <label>
+                  Type
+                  <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+                    {CATS.map((x) => (
+                      <option key={x}>{x}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Clarification sent to people who forwarded it
+                  <textarea
+                    className="nc-in"
+                    maxLength={1000}
+                    value={form.clarification}
+                    onChange={(e) => setForm({ ...form, clarification: e.target.value })}
+                    placeholder="What is true, in one or two short sentences"
+                  />
+                </label>
+                <div className="cp-acts">
+                  <button className="btn pri" type="submit" disabled={saving}>
+                    Save
+                  </button>
+                  <button className="btn" type="button" onClick={() => setForm(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="cp-acts">
+                {data.canEdit && (
+                  <button className="btn" onClick={startEdit}>
+                    Edit verdict and type
+                  </button>
+                )}
+                {next(c)}
+              </div>
+            )}
+            {data.canEdit && !data.canPublish && c.status === "Draft ready" && (
+              <div className="note" style={{ marginTop: 12 }}>
+                <span>The Commissioner or Joint Director (News) approves and publishes the verdict.</span>
+              </div>
+            )}
+
+            <h4>History</h4>
+            {data.history.length ? (
+              <ol className="cp-hist">
+                {data.history.map((h, i) => (
+                  <li key={i}>
+                    <time dateTime={h.at}>{when(h.at)}</time>
+                    <span>
+                      <b>{ACTION[h.action] || h.action}</b> · {h.who}
+                      {h.action === "claim.edit" || h.action === "claim.create" ? (
+                        <>
+                          <br />
+                          <small style={{ color: "var(--muted)" }}>{h.detail.split(" · ").slice(1).join(" · ") || "Logged in the console"}</small>
+                        </>
+                      ) : null}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <div className="empty">No recorded steps. This claim came with the sample data.</div>
+            )}
+
+            {data.related.length > 0 && (
+              <>
+                <h4>Linked claims</h4>
+                <ol className="cp-hist">
+                  {data.related.map((r) => (
+                    <li key={r.id}>
+                      <time>{r.id}</time>
+                      <span>
+                        {r.text}
+                        <br />
+                        <small style={{ color: "var(--muted)" }}>
+                          {r.district} · {r.status} · {r.verdict}
+                        </small>
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </>
+            )}
+          </>
+        )}
+      </aside>
+    </div>
   );
 }
