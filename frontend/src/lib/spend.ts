@@ -14,7 +14,10 @@ export const SP_DEFAULT: SpState = {
   l4l: true, allC: false, allV: false,
 };
 
-export const isBooked = (r: SpendRow) => r.status !== "RO issued";
+/** Billed or paid: the money is spent. "RO issued" is only committed; "Cancelled" counts nowhere. */
+export const isBooked = (r: SpendRow) => r.status === "Billed" || r.status === "Paid";
+export const CANCELLED = "Cancelled";
+export const counts = (r: SpendRow) => r.status !== CANCELLED;
 export const monIdx = (ym: string) => (+ym.split("-")[1] + 8) % 12;
 
 export function fyMonths(fy: string): string[] {
@@ -30,13 +33,26 @@ export const chv = (channels: string[]) => (c: string) => "var(--ch" + (channels
 type Ig = { fy?: boolean; ct?: boolean; ch?: boolean; vc?: boolean };
 
 export class SpendModel {
+  /** Rows that count in spend figures (cancelled orders left out). `all` keeps them for the order lists. */
+  public rows: SpendRow[];
   constructor(
-    public rows: SpendRow[], public budget: BudgetRow[], public cal: CalendarInfo, public channels: string[],
+    public all: SpendRow[], public budget: BudgetRow[], public cal: CalendarInfo, public channels: string[],
     public geoOk: (r: SpendRow) => boolean, public atState: boolean, public isVendor: boolean,
-  ) {}
+  ) {
+    this.rows = all.filter(counts);
+  }
+
+  /** Orders in the selection including cancelled ones, for the release-order lists. */
+  list(sp: SpState) {
+    return this.filter(this.all, sp);
+  }
 
   base(sp: SpState, ig: Ig = {}) {
-    return this.rows.filter(
+    return this.filter(this.rows, sp, ig);
+  }
+
+  private filter(src: SpendRow[], sp: SpState, ig: Ig = {}) {
+    return src.filter(
       (r) =>
         (ig.fy || sp.fy === "All" || r.fy === sp.fy) &&
         (ig.ct || sp.ctype === "All" || r.ctype === sp.ctype) &&
@@ -134,7 +150,7 @@ export class SpendModel {
       tt = va.reduce((a, b) => a + b, 0);
     if (tt) {
       const top = va.slice(0, 5).reduce((a, b) => a + b, 0) / tt;
-      out.push({ t: top > 0.5 ? "warn" : "good", x: `The top 5 vendors received <b>${pct0(top)}</b> of this year’s spend across ${va.length} vendors.` });
+      out.push({ t: top > 0.5 ? "warn" : "good", x: `The top 5 vendors received <b>${pct0(top)}</b> of this year’s spend across ${va.length} vendor${va.length === 1 ? "" : "s"}.` });
     }
     return out.slice(0, 4);
   }
@@ -143,6 +159,8 @@ export class SpendModel {
 // ---- Release-order workflow: issue → bill (vendor) → pay (accounts), and budget edits ----
 
 export type SpendOrderRow = SpendRow & {
+  /** `amount` is what spend figures count (bill amount once billed or paid); `orderAmount` is the amount on the RO. */
+  orderAmount?: number; cancelledBy?: string; cancelledOn?: string; cancelReason?: string;
   id: number; billNo?: string; billAmount?: number; billDate?: string; paidOn?: string; paymentRef?: string; issuedBy?: string; issuedOn?: string;
 };
 export type OrderEvent = { at: string; by: string; action: string; note: string };
@@ -158,7 +176,12 @@ export const canPay = (u: User) => u.role === "COMMISSIONER" || u.role === "DD_A
 export const canEditBudget = canPay;
 export const canBill = (u: User, r: SpendRow) => u.role === "VENDOR" && !!u.vendorId && r.vendorId === u.vendorId && r.status === "RO issued";
 
+export const canCancel = (u: User, r: SpendRow) => canPay(u) && r.status === "RO issued";
+
 export const statusLabel = (s: string) => (s === "RO issued" ? "To be billed" : s);
+/** Chip tone for an order status, as the prototype's toneOf("Pending") for open orders; cancelled is neutral grey. */
+export const statusTone = (s: string) => (s === "RO issued" ? "warn" : s === "Billed" ? "ind" : s === "Paid" ? "good" : "");
+export const orderAmt = (r: SpendOrderRow) => r.orderAmount ?? r.amount;
 
 export type IssueInput = {
   campaignId: string; campaign: string; ctype: string; department: string; channel: string; vendorId: string; district: string; month: string; amount: number;
@@ -187,6 +210,7 @@ export const spendApi = {
   issue: (b: IssueInput) => api.post<OrderDetail>("/spend/orders", b),
   bill: (id: number, b: { billNo: string; amount: number; billDate: string }) => api.post<OrderDetail>(`/spend/orders/${id}/bill`, b),
   pay: (id: number, b: { paidOn: string; reference: string }) => api.post<OrderDetail>(`/spend/orders/${id}/pay`, b),
+  cancel: (id: number, reason: string) => api.post<OrderDetail>(`/spend/orders/${id}/cancel`, { reason }),
   setBudget: (b: { fy: string; department: string; channel: string; budget: number }) => put<BudgetRow>("/spend/budget", b),
 };
 

@@ -1,10 +1,11 @@
 "use client";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { BarList, Kpi, StackChart } from "@/components/charts";
-import { dShow, isoL, lakh, nIN, pct, sumA, toneOf } from "@/lib/format";
+import { dShow, isoL, lakh, nIN, pct, sumA } from "@/lib/format";
 import { CHILD_LVL, geoChildren, label } from "@/lib/geo";
 import {
-  billCap, canBill, canEditBudget, canIssue, canPay, chv, fyOfMonth, isBooked, monIdx, nextCampaignId, SP_DEFAULT, spendApi, SpendModel, statusLabel,
+  billCap, canBill, canCancel, canEditBudget, canIssue, canPay, chv, fyOfMonth, isBooked, monIdx, nextCampaignId, orderAmt, SP_DEFAULT, spendApi, SpendModel,
+  statusLabel, statusTone,
 } from "@/lib/spend";
 import type { OrderDetail, SpendOrderRow, SpState } from "@/lib/spend";
 import { useApi, useApp } from "@/lib/store";
@@ -50,7 +51,7 @@ function Sel({ id, lab, opts, v, onChange }: { id: string; lab: string; opts: (s
 
 export function Spend() {
   const { user, node: n, geo, meta, canSee, drillTo, goUpload } = useApp();
-  const orders = useApi<SpendOrderRow[]>("/spend/orders");
+  const orders = useApi<SpendOrderRow[]>("/spend/orders?cancelled=true");
   const budget = useApi<BudgetRow[]>("/spend/budget");
   const vendors = useApi<VendorInfo[]>("/spend/vendors").data ?? [];
   const camps = useApi<Row[]>(canSee("campaigns") ? "/registers/campaigns/rows" : null).data ?? [];
@@ -75,6 +76,8 @@ export function Spend() {
 
   const vend = !!user.vendorId;
   const rows = model.base(SP),
+    listed = model.list(SP) as SpendOrderRow[],
+    nCxl = listed.length - rows.length,
     bk = rows.filter(isBooked),
     spent = sumA(bk),
     comm = sumA(rows.filter((r) => !isBooked(r))),
@@ -89,7 +92,7 @@ export function Spend() {
   const top5 = spent ? sumA(vArr.slice(0, 5), (x) => x[1]) / spent : 0;
   const kp: [string, string, string, string?][] = vend
     ? [
-        ["Orders received", nIN(rows.length), "release orders"],
+        ["Orders received", nIN(rows.length), nCxl ? `release orders · ${nIN(nCxl)} cancelled, not counted` : "release orders"],
         ["Billed and paid", lakh(spent), ""],
         ["Paid", lakh(paid), ""],
         ["Awaiting payment", lakh(spent - paid), "billed, not yet paid", "warn"],
@@ -150,6 +153,8 @@ export function Spend() {
     const top = Object.entries(ts).sort((a, b) => b[1] - a[1])[0];
     if (top) cmp = top[0];
   }
+  // as in the prototype, the fallback type sticks (it becomes the selected type)
+  if (cmp !== SP.cmp) setSPRaw((s) => ({ ...s, cmp }));
   const yRows = model.rows.filter((r) => r.ctype === cmp && isBooked(r) && (SP.dept === "All" || r.department === SP.dept) && geo.geoOk(r, n) && (!SP.l4l || monIdx(r.month) < 6));
   const yP = FYS.map((fy) => ({ key: fy, label: "FY " + fy.slice(2), fy }));
   const ySer = CHANNELS.map((c) => FYS.map((fy) => sumA(yRows.filter((r) => r.fy === fy && r.channel === c))));
@@ -410,21 +415,31 @@ export function Spend() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(rows as SpendOrderRow[])
+                  {listed
                     .slice()
                     .sort((a, b) => b.month.localeCompare(a.month))
                     .slice(0, SP.allC ? 400 : 25)
                     .map((r) => (
-                      <tr key={r.id} className="click" onClick={() => setDlg({ k: "order", id: r.id })}>
+                      <tr key={r.id} className={`click ${r.status === "Cancelled" ? "cxl" : ""}`} onClick={() => setDlg({ k: "order", id: r.id })}>
                         <td className="num">
                           <span className="nm">{r.roNo}</span>
                         </td>
                         <td>{dShow(r.month)}</td>
-                        <td>{r.campaign}</td>
-                        <td>{r.department}</td>
-                        <td className="r">{lakh(r.amount)}</td>
                         <td>
-                          <span className={`chip ${toneOf(r.status === "RO issued" ? "Pending" : r.status)}`}>{r.status === "RO issued" ? "To be billed" : r.status}</span>
+                          {r.campaign}
+                          {r.status === "Cancelled" && (
+                            <>
+                              <br />
+                              <small className="mut">Cancelled{r.cancelledOn ? " on " + dShow(r.cancelledOn) : ""}: {r.cancelReason}</small>
+                            </>
+                          )}
+                        </td>
+                        <td>{r.department}</td>
+                        <td className="r">
+                          <AmtCell r={r} />
+                        </td>
+                        <td>
+                          <span className={`chip ${statusTone(r.status)}`}>{statusLabel(r.status)}</span>
                         </td>
                         <td className="r">
                           {canBill(user, r) && (
@@ -444,9 +459,9 @@ export function Spend() {
                 </tbody>
               </table>
             </div>
-            {rows.length > 25 && !SP.allC && (
+            {listed.length > 25 && !SP.allC && (
               <button className="btn more" onClick={() => set({ allC: true })}>
-                Show all {rows.length}
+                Show all {listed.length}
               </button>
             )}
           </>
@@ -646,13 +661,14 @@ export function Spend() {
               {lakh(swAmt)} went to statewide media (TV, statewide papers, digital) and is not split by district.
             </div>
           </div>
-          <OrdersCard rows={rows as SpendOrderRow[]} onOpen={(id) => setDlg({ k: "order", id })} onAct={setDlg} />
+          <OrdersCard rows={listed} onOpen={(id) => setDlg({ k: "order", id })} onAct={setDlg} />
         </>
       )}
       {dlg?.k === "issue" && <IssueDialog rows={orders.data} vendors={vendors} onClose={() => setDlg(null)} onIssued={(id) => setDlg({ k: "order", id })} />}
       {dlg?.k === "order" && <OrderPanel id={dlg.id} onClose={() => setDlg(null)} onAct={setDlg} />}
       {dlg?.k === "bill" && <BillDialog o={dlg.o} onClose={() => setDlg(null)} />}
       {dlg?.k === "pay" && <PayDialog o={dlg.o} onClose={() => setDlg(null)} />}
+      {dlg?.k === "cancel" && <CancelDialog o={dlg.o} onClose={() => setDlg(null)} />}
       {dlg?.k === "budget" && <BudgetDialog init={dlg} budget={budget.data} onClose={() => setDlg(null)} />}
     </div>
   );
@@ -674,7 +690,24 @@ type Dlg =
   | { k: "order"; id: number }
   | { k: "bill"; o: SpendOrderRow }
   | { k: "pay"; o: SpendOrderRow }
+  | { k: "cancel"; o: SpendOrderRow }
   | { k: "budget"; dept?: string; channel?: string; fy?: string };
+
+/** The amount spend figures count; when the bill differs from the order, the order amount is shown underneath. */
+function AmtCell({ r }: { r: SpendOrderRow }) {
+  const oa = orderAmt(r);
+  return (
+    <>
+      {lakh(r.amount)}
+      {Math.abs(oa - r.amount) > 0.004 && (
+        <>
+          <br />
+          <small className="mut">order {lakh(oa)}</small>
+        </>
+      )}
+    </>
+  );
+}
 
 function errMsg(e: unknown) {
   return e instanceof Error ? e.message : "Something went wrong.";
@@ -867,8 +900,9 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
 }
 
 function BillDialog({ o, onClose }: { o: SpendOrderRow; onClose: () => void }) {
-  const cap = billCap(o.amount);
-  const [f, setF] = useState({ billNo: "", amount: String(o.amount), billDate: isoL(new Date()) });
+  const oa = orderAmt(o);
+  const cap = billCap(oa);
+  const [f, setF] = useState({ billNo: "", amount: String(oa), billDate: isoL(new Date()) });
   const { busy, err, setErr, run } = useSubmit(onClose);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -881,7 +915,7 @@ function BillDialog({ o, onClose }: { o: SpendOrderRow; onClose: () => void }) {
     });
   };
   return (
-    <Dialog title="Submit bill" sub={`${o.roNo} · ${o.campaign} · order ${lakh(o.amount)}`} onClose={onClose}>
+    <Dialog title="Submit bill" sub={`${o.roNo} · ${o.campaign} · order ${lakh(oa)}`} onClose={onClose}>
       <form className="spf" onSubmit={submit}>
         <Fld l="Bill number">
           <input value={f.billNo} required maxLength={40} onChange={(e) => setF({ ...f, billNo: e.target.value })} />
@@ -932,6 +966,40 @@ function PayDialog({ o, onClose }: { o: SpendOrderRow; onClose: () => void }) {
           </button>
           <button className="btn pri" disabled={busy}>
             {busy ? "Saving…" : "Mark paid"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function CancelDialog({ o, onClose }: { o: SpendOrderRow; onClose: () => void }) {
+  const [reason, setReason] = useState("");
+  const { busy, err, setErr, run } = useSubmit(onClose);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reason.trim()) return setErr("Give the reason for cancelling.");
+    run(async () => {
+      const r = await spendApi.cancel(o.id, reason.trim());
+      return { title: "Release order cancelled", body: `${r.roNo} · ${r.vendorId} · ${lakh(orderAmt(r))} no longer counts as committed` };
+    });
+  };
+  return (
+    <Dialog title="Cancel release order" sub={`${o.roNo} · ${o.vendorId} · ${o.campaign} · ${lakh(orderAmt(o))}`} onClose={onClose}>
+      <form className="spf" onSubmit={submit}>
+        <Fld l="Reason" full>
+          <textarea value={reason} required maxLength={300} rows={3} placeholder="e.g. Issued twice by mistake" onChange={(e) => setReason(e.target.value)} />
+        </Fld>
+        <p className="cap full">
+          The order leaves every spend figure. The vendor sees it as cancelled, with this reason, and can no longer bill it. This cannot be undone.
+        </p>
+        {err && <div className="note bad full">{err}</div>}
+        <div className="upacts full">
+          <button type="button" className="btn" onClick={onClose}>
+            Keep the order
+          </button>
+          <button className="btn pri danger" disabled={busy}>
+            {busy ? "Cancelling…" : "Cancel release order"}
           </button>
         </div>
       </form>
@@ -1014,7 +1082,7 @@ function OrderPanel({ id, onClose, onAct }: { id: number; onClose: () => void; o
   const { data: o, error } = useApi<OrderDetail>(`/spend/orders/${id}`);
   const dl: [string, React.ReactNode][] = o
     ? [
-        ["Status", <span key="s" className={`chip ${toneOf(o.status === "RO issued" ? "Pending" : o.status)}`}>{statusLabel(o.status)}</span>],
+        ["Status", <span key="s" className={`chip ${statusTone(o.status)}`}>{statusLabel(o.status)}</span>],
         ["Campaign", `${o.campaignId} · ${o.campaign}`],
         ["Type", o.ctype],
         ["Department", o.department],
@@ -1022,9 +1090,14 @@ function OrderPanel({ id, onClose, onAct }: { id: number; onClose: () => void; o
         ["Channel", o.channel],
         ["District", o.district],
         ["Month", `${dShow(o.month)} · ${o.fy} ${o.quarter}`],
-        ["Order amount", lakh(o.amount)],
+        ["Order amount", lakh(orderAmt(o))],
         ["Bill", o.billNo ? `${o.billNo} · ${lakh(o.billAmount ?? 0)} · ${dShow(o.billDate)}` : "—"],
         ["Payment", o.paidOn ? `${dShow(o.paidOn)} · ref ${o.paymentRef}` : "—"],
+        [
+          "Counts in spend as",
+          o.status === "Cancelled" ? "Nothing (cancelled)" : o.status === "RO issued" ? `${lakh(o.amount)} committed` : `${lakh(o.amount)} spent${o.billNo ? " (bill amount)" : ""}`,
+        ],
+        ...(o.status === "Cancelled" ? ([["Cancelled", `${o.cancelledOn ? dShow(o.cancelledOn) + " · " : ""}${o.cancelledBy ?? ""} · ${o.cancelReason ?? ""}`]] as [string, string][]) : []),
       ]
     : [];
   return (
@@ -1068,6 +1141,11 @@ function OrderPanel({ id, onClose, onAct }: { id: number; onClose: () => void; o
                 Mark paid
               </button>
             )}
+            {canCancel(user, o) && (
+              <button className="btn danger" onClick={() => onAct({ k: "cancel", o })}>
+                Cancel release order
+              </button>
+            )}
           </div>
         </>
       )}
@@ -1080,6 +1158,7 @@ const ST_FILTERS = [
   ["RO issued", "To be billed"],
   ["Billed", "Billed"],
   ["Paid", "Paid"],
+  ["Cancelled", "Cancelled"],
 ] as const;
 
 function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (id: number) => void; onAct: (d: Dlg) => void }) {
@@ -1095,7 +1174,7 @@ function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (i
       <div className="ch">
         <div>
           <h3>Release orders</h3>
-          <p>In this selection, latest first · select an order to see its bill, payment and history</p>
+          <p>In this selection, latest first · select an order to see its bill, payment and history. Cancelled orders count in no figure.</p>
         </div>
         <div className="seg">
           {ST_FILTERS.map(([k, l]) => (
@@ -1122,7 +1201,7 @@ function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (i
             </thead>
             <tbody>
               {list.slice(0, n).map((r) => (
-                <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
+                <tr key={r.id} className={`click ${r.status === "Cancelled" ? "cxl" : ""}`} onClick={() => onOpen(r.id)}>
                   <td className="num">
                     <span className="nm">{r.roNo}</span>
                   </td>
@@ -1130,16 +1209,31 @@ function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (i
                   <td>
                     {r.campaign}
                     <br />
-                    <small className="mut">{r.department}</small>
+                    <small className="mut">
+                      {r.status === "Cancelled" ? `Cancelled by ${r.cancelledBy ?? "—"}${r.cancelledOn ? " on " + dShow(r.cancelledOn) : ""}: ${r.cancelReason ?? ""}` : r.department}
+                    </small>
                   </td>
                   <td>{r.vendorId}</td>
                   <td>{r.district}</td>
-                  <td className="r">{lakh(r.amount)}</td>
+                  <td className="r">
+                    <AmtCell r={r} />
+                  </td>
                   <td>
-                    <span className={`chip ${toneOf(r.status === "RO issued" ? "Pending" : r.status)}`}>{statusLabel(r.status)}</span>
+                    <span className={`chip ${statusTone(r.status)}`}>{statusLabel(r.status)}</span>
                   </td>
                   {pay && (
                     <td className="r">
+                      {canCancel(user, r) && (
+                        <button
+                          className="btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAct({ k: "cancel", o: r });
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      )}
                       {r.status === "Billed" && (
                         <button
                           className="btn"
