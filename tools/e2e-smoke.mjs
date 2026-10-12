@@ -16,7 +16,9 @@ for (const role of ROLES) {
   const page = await ctx.newPage();
   const problems = [];
   page.on("pageerror", (e) => problems.push("pageerror: " + e.message));
-  page.on("console", (m) => m.type() === "error" && problems.push("console: " + m.text()));
+  // a web font or other third-party file that cannot load (offline, proxy) is not an app error
+  const external = (m) => /^Failed to load resource/.test(m.text()) && !(m.location().url || "").startsWith(BASE);
+  page.on("console", (m) => m.type() === "error" && !external(m) && problems.push("console: " + m.text()));
   page.on("response", (r) => r.url().includes("/api/") && r.status() >= 400 && problems.push(`HTTP ${r.status()} ${r.url()}`));
   await page.goto(BASE);
   await page.locator(`input[name=stk][value=${role}]`).check({ force: true });

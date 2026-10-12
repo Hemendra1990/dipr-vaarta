@@ -45,10 +45,17 @@ const ALLOWED_EMPTY = [
   { module: "upload", re: /Your login has no data to upload/, why: "the role has no uploadable dataset" },
   { module: "offices", re: /No open tasks from HQ/, why: "HQ tasks are created at run time, not seeded" },
   { module: "*", re: /^Loading run history/, why: "covered by the stuck-loading check" },
+  { module: "admin", level: "taluk", re: /No records match/, why: "one District Information Office per district, filed under its headquarters taluk" },
+  { module: "empanel", level: "taluk", re: /No records match/, why: "vendors are empanelled per district (or statewide), not per taluk" },
+  { module: "bills", level: "taluk", re: /No records match/, why: "bills follow the release orders that have been billed; not every taluk has a billed order" },
   {
     module: "*", role: "VENDOR", re: /No records match|No release orders with this status/,
     why: "the demo vendor (PR-K02) is a statewide outlet: its own bills and empanelment are statewide rows, so a division, district or taluk honestly has none",
   },
+];
+// Modules a role may not drill (the check is skipped, with the reason).
+const NO_DRILL_OK = [
+  { role: "VENDOR", module: "*", why: "the demo vendor's rows are all statewide, so there is no place below Karnataka to drill to" },
 ];
 // "No data" phrases the views print outside an `.empty` block (they also fail unless whitelisted above).
 const EMPTY_PHRASES = [
@@ -70,7 +77,9 @@ async function signIn(browser, role) {
   const page = await ctx.newPage();
   const st = { problems: [], inflight: 0, lastChange: Date.now() };
   page.on("pageerror", (e) => st.problems.push("page error: " + e.message));
-  page.on("console", (m) => m.type() === "error" && st.problems.push("console error: " + m.text().slice(0, 200)));
+  // a web font or other third-party file that cannot load (offline, proxy) is not an app error
+  const external = (m) => /^Failed to load resource/.test(m.text()) && !(m.location().url || "").startsWith(BASE);
+  page.on("console", (m) => m.type() === "error" && !external(m) && st.problems.push("console error: " + m.text().slice(0, 200)));
   const isApi = (u) => u.includes("/api/");
   page.on("request", (r) => {
     if (isApi(r.url())) st.inflight++, (st.lastChange = Date.now());
@@ -191,6 +200,7 @@ async function runRole(browser, role, log) {
   for (let mi = 0; mi < mods.length; mi++) {
     const mod = mods[mi];
     if (MODULES && !MODULES.has(mod.key)) continue;
+    const noDrillOk = NO_DRILL_OK.find((a) => a.role === role && (a.module === "*" || a.module === mod.key));
     const used = {}; // control type → count, so every type the module offers gets exercised
     const record = (p, via, reasons) => {
       const level = ["state", "division", "district", "taluk"][p.length];
@@ -216,7 +226,9 @@ async function runRole(browser, role, log) {
       if (i.upDisabled !== upWant) reasons.push(`drill-up button ${i.upDisabled ? "disabled" : "enabled"}, expected ${upWant ? "disabled" : "enabled"}`);
       if (i.hash !== hashFor(mod.key, p)) reasons.push(`address "${i.hash}", expected "${hashFor(mod.key, p)}"`);
       if (i.len < 40) reasons.push("view is empty");
-      const allowed = (txt) => ALLOWED_EMPTY.find((a) => (a.module === "*" || a.module === mod.key) && (!a.role || a.role === role) && a.re.test(txt));
+      const level = ["state", "division", "district", "taluk"][p.length];
+      const allowed = (txt) =>
+        ALLOWED_EMPTY.find((a) => (a.module === "*" || a.module === mod.key) && (!a.role || a.role === role) && (!a.level || a.level === level) && a.re.test(txt));
       for (const e of i.empties) if (!allowed(e)) reasons.push(`empty state: "${e.slice(0, 110)}"`);
       for (const re of EMPTY_PHRASES) {
         const m = i.text.match(new RegExp(re.source + "[^\\n]{0,60}", re.flags));
@@ -242,7 +254,7 @@ async function runRole(browser, role, log) {
       if (!types.length) {
         await viaLink(p);
         const r = await check(p, "address");
-        if (needControl) {
+        if (needControl && !noDrillOk) {
           r.ok = false;
           r.reasons.unshift(`no control in the view drills to ${labelsFor(p).slice(-1)[0]} (reached through the address instead)`);
         }
@@ -286,9 +298,9 @@ async function runRole(browser, role, log) {
       let drills = false;
       for (const k of kidsOf(top)) if ((await controlsFor(page, k, ["div", "dist", "tlk"][top.length])).length) drills = true;
 
-      if (!drills && GEO.has(mod.key)) {
+      if (!drills && GEO.has(mod.key) && !noDrillOk) {
         const kids = ["divisions", "districts", "taluks"][top.length];
-        record(top, "coverage", [`the view has no control that drills to its ${kids}`]);
+        record(top, "drill check", [`the view has no control that drills to its ${kids}`]);
       }
       if (!drills) {
         // not geographic (or no drill in this module): check one place per level through the address
@@ -354,6 +366,15 @@ async function runRole(browser, role, log) {
       await page.goBack();
       await page.waitForFunction((k) => location.hash.split("/")[0] === "#" + k, first, { timeout: 4000 }).catch(() => shell.reasons.push("Back did not return to the previous module"));
     }
+    // a link to a place opens there, also after a reload
+    await page.evaluate((h) => (location.hash = h), "#" + first + "/Kalaburagi/Raichur/Sindhanur");
+    await page.reload();
+    await page.waitForSelector("nav.snav");
+    const deep = sc ? ["Raichur", "Sindhanur"] : ["Karnataka", "Kalaburagi Division", "Raichur", "Sindhanur"];
+    await page
+      .waitForFunction((w) => JSON.stringify([...document.querySelectorAll(".crumbs button")].map((b) => b.textContent.trim())) === w, JSON.stringify(deep), { timeout: 6000 })
+      .catch(() => shell.reasons.push("a link to Raichur › Sindhanur did not open at that taluk after a reload"));
+    await settle(page, st, shell.reasons);
     shell.reasons.push(...st.problems.splice(0));
     shell.ok = !shell.reasons.length;
     results.push(shell);
@@ -408,7 +429,8 @@ fs.writeFileSync(
       when: new Date().toISOString(),
       passed: checks.length - failed,
       failed,
-      allowedEmpty: ALLOWED_EMPTY.map((a) => ({ module: a.module, role: a.role || "*", text: a.re.source, why: a.why })),
+      allowedEmpty: ALLOWED_EMPTY.map((a) => ({ module: a.module, role: a.role || "*", level: a.level || "*", text: a.re.source, why: a.why })),
+      noDrillAllowed: NO_DRILL_OK,
       summary: rows.map((g) => ({ role: g.role, module: g.module, level: g.level, pass: g.pass, fail: g.fail, reasons: Object.fromEntries(g.reasons) })),
       checks: all,
     },

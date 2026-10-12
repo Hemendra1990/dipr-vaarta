@@ -5,3 +5,4 @@ target/
 data/
 *.log
 frontend/next-env.d.ts
+e2e-drill-report.json
