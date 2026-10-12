@@ -86,3 +86,10 @@ export type UserOptions = {
 export type AuditRow = { id: number; username: string; action: string; detail: string | null; at: string };
 export type AuditPage = { items: AuditRow[]; total: number; page: number; size: number; pages: number };
 export type AuditFacets = { users: string[]; actions: string[]; groups: string[] };
+// --- AI agents (command area) ---
+/** An agent card for the signed-in user (GET /api/agents). */
+export type AgentCard = AgentInfo & { canRun: boolean; canApprove: boolean; note: string | null };
+/** A stored agent run with its decision and what approving it changed (GET /api/agents/runs, /inbox). */
+export type AgentRunFull = AgentRun & {
+  startedAt: string; decidedAt: string | null; comment: string | null; area: string | null; sentTo: string | null; effect: string | null;
+};

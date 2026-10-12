@@ -49,7 +49,9 @@ export function Kpi({ l, v, s, t }: { l: string; v: React.ReactNode; s?: string;
   );
 }
 
-export function LineChart({ series, labels }: { series: { vals: number[]; col: string }[]; labels: string[] }) {
+/** Trend lines (prototype lineChart). Hovering or tapping a day shows a guide line and every series' value for it. */
+export function LineChart({ series, labels }: { series: { vals: number[]; col: string; name?: string }[]; labels: string[] }) {
+  const [hov, setHov] = React.useState<number | null>(null);
   const W = 640,
     H = 220,
     L = 52,
@@ -94,6 +96,53 @@ export function LineChart({ series, labels }: { series: { vals: number[]; col: s
           </text>
         ) : null,
       )}
+      {hov !== null && (
+        <g className="hov" pointerEvents="none">
+          <line x1={x(hov)} x2={x(hov)} y1={T} y2={H - B} />
+          {series.map((s, si) => (
+            <circle key={si} cx={x(hov)} cy={y(s.vals[hov])} r="3.5" fill={s.col} stroke="var(--surface)" strokeWidth="1.5" />
+          ))}
+          {(() => {
+            const tw = 150,
+              th = 22 + 16 * series.length,
+              tx = x(hov) + 10 + tw > W - R ? x(hov) - 10 - tw : x(hov) + 10;
+            return (
+              <g className="tip" transform={`translate(${tx},${T + 4})`}>
+                <rect width={tw} height={th} rx="6" />
+                <text x="10" y="16" className="tl">
+                  {labels[hov]}
+                </text>
+                {series.map((s, si) => (
+                  <g key={si} transform={`translate(10,${32 + si * 16})`}>
+                    <rect y="-7" width="8" height="8" rx="2" fill={s.col} className="sw" />
+                    <text x="14" y="0">
+                      {(s.name || `Series ${si + 1}`) + ": " + fmt(s.vals[hov])}
+                    </text>
+                  </g>
+                ))}
+              </g>
+            );
+          })()}
+        </g>
+      )}
+      <g onMouseLeave={() => setHov(null)}>
+        {labels.map((l, i) => {
+          const x0 = i === 0 ? L : (x(i - 1) + x(i)) / 2,
+            x1 = i === N - 1 ? W - R : (x(i) + x(i + 1)) / 2;
+          return (
+            <rect
+              key={i}
+              x={x0}
+              y={T}
+              width={Math.max(0, x1 - x0)}
+              height={H - T - B}
+              fill="transparent"
+              onMouseEnter={() => setHov(i)}
+              onClick={() => setHov(i)}
+            />
+          );
+        })}
+      </g>
     </svg>
   );
 }
@@ -166,7 +215,7 @@ export function Scatter({ pts }: { pts: ScatterPt[] }) {
   const ax = pts.reduce((a, p) => a + p.x, 0) / pts.length,
     ay = pts.reduce((a, p) => a + p.y, 0) / pts.length;
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Spend versus uptake">
+    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Spend versus uptake">
       <g className="grid">
         {[0, 1, 2, 3, 4].map((k) => {
           const v = ylo + ((yhi - ylo) * k) / 4;
@@ -199,7 +248,20 @@ export function Scatter({ pts }: { pts: ScatterPt[] }) {
       {pts.map((p) => {
         const lo = p.x > ax && p.y < ay;
         return (
-          <g key={p.key} className="hx" onClick={p.onClick}>
+          <g
+            key={p.key}
+            className="hx"
+            tabIndex={0}
+            role="button"
+            aria-label={`${p.label}: ₹${p.x.toFixed(0)} per 1,000 people, uptake ${p.y.toFixed(0)}. Drill down`}
+            onClick={p.onClick}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                p.onClick();
+              }
+            }}
+          >
             <title>{`${p.label}: ₹${p.x.toFixed(0)} per 1,000, uptake ${p.y.toFixed(0)}`}</title>
             <circle cx={x(p.x)} cy={y(p.y)} r="6" fill={lo ? "var(--crit)" : "var(--indigo)"} opacity=".85" />
             <text x={x(p.x) + 9} y={y(p.y) + 3.5} style={{ fill: "var(--ink)" }}>
