@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,8 +27,26 @@ public final class FieldCoercer {
     private static final Pattern FY = Pattern.compile("^(20\\d\\d)\\s*-\\s*(\\d\\d)$");
 
     private final List<String> districts;
+    private final Map<String, List<String>> taluks;
 
-    public FieldCoercer(List<String> districts) { this.districts = districts; }
+    public FieldCoercer(List<String> districts) { this(districts, Map.of()); }
+
+    public FieldCoercer(List<String> districts, Map<String, List<String>> taluks) { this.districts = districts; this.taluks = taluks; }
+
+    /**
+     * Like {@link #coerce(FieldDef, Object)}, but a {@code taluk} cell is checked against the taluks of the row's district
+     * (the district column must come earlier in the schema, as it does in every schema).
+     */
+    public Result coerce(FieldDef f, Object v, Map<String, Object> row) {
+        if (!"taluk".equals(f.t()) || taluks.isEmpty()) return coerce(f, v);
+        boolean empty = v == null || (v instanceof String s && s.trim().isEmpty());
+        if (empty) return f.req() ? Result.err("Required value is empty") : Result.ok("");
+        Object dist = row == null ? null : row.get("district");
+        if (dist == null || "".equals(dist) || "Statewide".equals(dist)) return Result.err("Statewide rows have no taluk; leave it empty");
+        String t = v.toString().trim();
+        return taluks.getOrDefault(dist.toString(), List.of()).stream().filter(x -> x.equalsIgnoreCase(t)).findFirst().<Result>map(Result::ok)
+                .orElse(Result.err("Not a taluk of " + dist));
+    }
 
     public Result coerce(FieldDef f, Object v) {
         boolean empty = v == null || (v instanceof String s && s.trim().isEmpty());

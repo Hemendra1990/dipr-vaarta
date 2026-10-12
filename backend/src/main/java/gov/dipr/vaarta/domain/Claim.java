@@ -12,6 +12,8 @@ public class Claim {
     @Column(length = 1000) public String text;
     public String lang;
     public String district;
+    /** One of the district's taluks (sample data, or when the sender names one); null for statewide items. */
+    @Column(length = 60) public String taluk;
     public String category;
     public String status;
     public String verdict;
