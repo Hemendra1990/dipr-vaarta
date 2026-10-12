@@ -142,6 +142,29 @@ fixes per area are in `docs/notes/audit-*.md`. Behaviour added beyond display:
 - **Shell, roles, admin** (`audit-shell.md`): each role lands on its first module; browser Back/Forward between modules;
   session expiry returns to sign-in with a message; dialog focus handling; a role × module test pins the access matrix.
 
+## 3c. Drill-down everywhere (round 3)
+
+Every chart, map, KPI and table drills State → Division → District → Taluk for every role, and every level has sample data.
+
+- **Taluk on every row.** Release orders, claims, feed items, ad flags and press releases carry a `taluk`, as do all
+  district-tagged register rows (assigned by a fixed hash of the row, so the data is the same on every load). Uploads
+  validate it. Campaigns, film, publications and grants are statewide and have no place.
+- **Sample data at every taluk.** Rows added to fill a level are marked `"supplementary": true` in the seed JSON only.
+  They are settled and old (claims published or closed, flags cleared or resolved, feed items are daily reports,
+  releases already issued), so the live queues match the prototype: 7 claims open, 5 flags waiting, 3 pulse notes,
+  1 escalation, next release REL-1881. List sizes: claims 146, feed 146, flags 146, releases 149; registers: crisis 153,
+  RTI 305, outdoor 307, social 453, empanelment 191, bills 617, media 557.
+- **Spend totals unchanged.** New district and Health orders are paid for by reducing 30 statewide 2026-27 orders of
+  the same department, so the state, financial-year, department and vendor totals match the prototype; channel, month
+  and status mixes shift slightly (see `docs/notes/seed.md`). The Health nodal officer has spend, bills and media in
+  every taluk; vendor PR-K02 has district orders in every division.
+- **"Orders flagged by audit agent"** counts flags still open (flagged or sent for review); decided flags stay listed.
+- **An area with no rows is listed but not drillable** (its bar is disabled), so no level opens empty.
+- **The address carries the place** (`#tipline/Kalaburagi/Raichur/Sindhanur`); back, forward and reload keep it.
+- **Below state level** the spend budget shows "—" (budget lines have no place). District offices gains a taluk table
+  at district level; overlapping scatter dots are pushed apart and keep their true values in the tooltip.
+- **Test:** `tools/e2e-drill.mjs` walks every drill path for all 7 roles (`--full` = all 31 districts, 4,755 checks).
+
 ## 4. Architecture
 
 ```
