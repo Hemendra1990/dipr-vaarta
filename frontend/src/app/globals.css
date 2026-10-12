@@ -460,3 +460,18 @@ code.hdrs{display:block;margin-top:6px;white-space:pre-wrap;user-select:all}
 .nc-in{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:6px 8px;font-size:13px;min-width:0}
 .fbar .slicer input.nc-in{width:100%}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
+
+/* registers: add / edit record panel */
+.rp-scrim{position:fixed;inset:0;z-index:40;background:color-mix(in oklab,var(--bezel) 35%,transparent);display:flex;justify-content:flex-end}
+.rp{width:min(460px,100vw);height:100%;overflow:auto;border-radius:14px 0 0 14px;box-shadow:var(--shadow);animation:tin .2s ease}
+.rp-msg{margin-bottom:10px}
+.rp-form{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.rp-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.rp-f label{font-size:12px;font-weight:600;color:var(--muted)}
+.rp-f input,.rp-f select{border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 9px;min-width:0;width:100%}
+.rp-f input[readonly],.rp-f select[disabled]{opacity:.8}
+.rp-f.bad input,.rp-f.bad select{border-color:var(--crit)}
+.rp-err{font-size:11.5px;color:var(--crit)}
+.rp-acts{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.rp-del{margin-left:auto;color:var(--crit)}
+@media (max-width:520px){.rp-form{grid-template-columns:1fr}.rp{border-radius:0}}
