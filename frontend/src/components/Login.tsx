@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, token } from "@/lib/api";
 import type { User } from "@/lib/types";
 import { ChangePassword } from "./PasswordDialog";
 import { ThemeButton } from "./Theme";
 
-type Tile = { role: string; key: string; title: string; scope: string; user: string; icon: string; color: string };
+type Tile = { role: string; key: string; title: string; titleKn: string; scope: string; user: string; icon: string; color: string };
 
 const DISTRICTS_RING = 31;
 
@@ -25,7 +25,7 @@ function Ring() {
   );
 }
 
-export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
+export function Login({ onSignedIn, notice }: { onSignedIn: (u: User) => void; notice?: string | null }) {
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [demoPw, setDemoPw] = useState("");
   const [role, setRole] = useState("COMMISSIONER");
@@ -33,7 +33,7 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
   const [pass, setPass] = useState("");
   const [cap, setCap] = useState<{ id: string; question: string } | null>(null);
   const [ans, setAns] = useState("");
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(notice ?? null);
   const [busy, setBusy] = useState(false);
   // Signed in with a password the Commissioner's office issued: ask for a new one before entering.
   const [pending, setPending] = useState<User | null>(null);
@@ -59,6 +59,17 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
     newCap();
   }, []);
 
+  // A notice that arrives while this screen is open (e.g. the console could not load after sign-in): show it and
+  // ask a fresh question, because the last one was used up.
+  const seen = useRef(notice);
+  useEffect(() => {
+    if (notice && notice !== seen.current) {
+      setErr(notice);
+      newCap();
+    }
+    seen.current = notice;
+  }, [notice]);
+
   const pick = (t: Tile) => {
     setRole(t.role);
     setUser(t.user);
@@ -72,7 +83,11 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
       setErr("Enter your user ID and password.");
       return;
     }
-    if (!cap) return;
+    if (!cap) {
+      setErr("The security question has not loaded yet. Press ↻ for a new one.");
+      newCap();
+      return;
+    }
     setBusy(true);
     try {
       const r = await api.post<{ token: string; user: User; mustChangePassword?: boolean }>("/auth/login", {
@@ -138,7 +153,7 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
           <fieldset className="stk">
             <legend>Sign in as</legend>
             {tiles.map((t) => (
-              <label key={t.role} className={`sk ${t.role === role ? "on" : ""}`}>
+              <label key={t.role} className={`sk ${t.role === role ? "on" : ""}`} title={t.titleKn ? `${t.title} · ${t.titleKn}` : undefined}>
                 <input type="radio" name="stk" value={t.role} checked={t.role === role} onChange={() => pick(t)} />
                 <span className="ski" style={{ background: t.color }}>
                   {t.icon}

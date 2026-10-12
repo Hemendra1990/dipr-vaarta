@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, token } from "@/lib/api";
 import { CHILD_LVL, Geo, label, LVL, Node } from "@/lib/geo";
 import { NAV, OUTREACH } from "@/lib/nav";
@@ -19,9 +19,11 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
   const canSee = useCallback((k: string) => user.modules.includes(k), [user]);
   const sc = user.district;
 
+  // The landing module is the first one in the role's own list (prototype allowedTabs()[0]), e.g. Spend for Accounts.
+  const homeTab = useMemo(() => user.modules.find((k) => allowedTabs.includes(k)) ?? allowedTabs[0], [user, allowedTabs]);
   const initialTab = () => {
     const h = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
-    return allowedTabs.includes(h) ? h : allowedTabs[0];
+    return allowedTabs.includes(h) ? h : homeTab;
   };
   const [tab, setTabRaw] = useState<string>(initialTab);
   const [drill, setDrill] = useState<Drill>(() => (sc ? { div: geo.DIV_OF[sc], dist: sc, tlk: null } : { div: null, dist: null, tlk: null }));
@@ -46,15 +48,35 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
     );
   }, [hasOutreach, geo, meta, toast]);
 
+  // Each module has its own URL (#tipline); browser back / forward move between the modules visited.
   const setTab = useCallback(
     (t: string) => {
       if (!allowedTabs.includes(t)) return;
       setTabRaw(t);
-      if (window.location.hash.slice(1) !== t) history.replaceState(null, "", "#" + t);
+      if (window.location.hash.slice(1) !== t) history.pushState(null, "", "#" + t);
       window.scrollTo(0, 0);
     },
     [allowedTabs],
   );
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  useEffect(() => {
+    // the address bar always names the module in view; an unknown or forbidden hash falls back to it
+    if (window.location.hash.slice(1) !== tabRef.current) history.replaceState(null, "", "#" + tabRef.current);
+    const onNav = () => {
+      const h = window.location.hash.slice(1);
+      if (h === tabRef.current) return;
+      if (allowedTabs.includes(h)) {
+        setTabRaw(h);
+        window.scrollTo(0, 0);
+      } else {
+        if (h) toast("Not available", "Your login cannot open that module.");
+        history.replaceState(null, "", "#" + tabRef.current);
+      }
+    };
+    window.addEventListener("popstate", onNav);
+    return () => window.removeEventListener("popstate", onNav);
+  }, [allowedTabs, toast]);
 
   const node: Node = useMemo(() => {
     if (drill.tlk) return { lvl: "tlk", name: drill.tlk, div: drill.div!, dist: drill.dist! };

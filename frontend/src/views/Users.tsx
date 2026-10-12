@@ -159,23 +159,23 @@ export function Users() {
                     <td className="nw">{when(u.lastSignInAt)}</td>
                     <td className="r">
                       <div className="us-acts">
-                        <button className="btn" onClick={() => setModal({ kind: "edit", u })}>
+                        <button className="btn" aria-label={`Edit ${u.username}`} onClick={() => setModal({ kind: "edit", u })}>
                           Edit
                         </button>
-                        <button className="btn" onClick={() => setModal({ kind: "reset", u })}>
+                        <button className="btn" aria-label={`Reset password for ${u.username}`} onClick={() => setModal({ kind: "reset", u })}>
                           Reset password
                         </button>
                         {u.locked && u.active && (
-                          <button className="btn" onClick={() => act("Unlocked", `/users/${u.id}/unlock`, {}, `${u.username} can sign in again.`)}>
+                          <button className="btn" aria-label={`Unlock ${u.username}`} onClick={() => act("Unlocked", `/users/${u.id}/unlock`, {}, `${u.username} can sign in again.`)}>
                             Unlock
                           </button>
                         )}
                         {u.active ? (
-                          <button className="btn" disabled={u.self} title={u.self ? "You cannot deactivate your own login" : undefined} onClick={() => setModal({ kind: "off", u })}>
+                          <button className="btn" aria-label={`Deactivate ${u.username}`} disabled={u.self} title={u.self ? "You cannot deactivate your own login" : undefined} onClick={() => setModal({ kind: "off", u })}>
                             Deactivate
                           </button>
                         ) : (
-                          <button className="btn" onClick={() => act("Reactivated", `/users/${u.id}/active`, { active: true }, `${u.username} can sign in again.`)}>
+                          <button className="btn" aria-label={`Reactivate ${u.username}`} onClick={() => act("Reactivated", `/users/${u.id}/active`, { active: true }, `${u.username} can sign in again.`)}>
                             Reactivate
                           </button>
                         )}

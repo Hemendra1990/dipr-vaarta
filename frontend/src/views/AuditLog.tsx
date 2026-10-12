@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { useApi } from "@/lib/store";
+import { useEffect, useState } from "react";
+import { useApi, useApp } from "@/lib/store";
 import type { AuditFacets, AuditPage } from "@/lib/types";
 import { ErrorNote, Loading } from "./common";
 import { when } from "./Users";
@@ -10,26 +10,35 @@ const SIZE = 50;
 /** Plain names for the action groups in the filter. */
 const GROUP: Record<string, string> = {
   login: "Sign-in", user: "Users & access", password: "Password", claim: "Tipline", upload: "Data upload", agent: "AI agents",
-  feed: "District offices", adflag: "Release-order audit",
+  feed: "District offices", adflag: "Release-order audit", press: "Press office", spend: "Release orders & budget",
+  register: "Register records", bot: "WhatsApp numbers",
 };
 
 const tone = (a: string) => (a === "login.locked" || a === "user.deactivate" ? "crit" : a === "login.failed" ? "warn" : a.startsWith("user.") || a.startsWith("password") ? "ind" : "");
 
 export function AuditLog() {
+  const { invalidate } = useApp();
   const { data: facets } = useApi<AuditFacets>("/audit/facets");
   const [user, setUser] = useState("");
   const [action, setAction] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [q, setQ] = useState("");
+  // the text filter is sent once typing pauses, not on every key
+  const [qSent, setQSent] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setQSent(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
   const [page, setPage] = useState(0);
   const p = new URLSearchParams({ page: String(page), size: String(SIZE) });
   if (user) p.set("user", user);
   if (action) p.set("action", action);
+  const badRange = !!from && !!to && from > to;
   if (from) p.set("from", from);
   if (to) p.set("to", to);
-  if (q.trim()) p.set("q", q.trim());
-  const { data, error } = useApi<AuditPage>("/audit?" + p.toString());
+  if (qSent) p.set("q", qSent);
+  const { data, error } = useApi<AuditPage>(badRange ? null : "/audit?" + p.toString());
 
   const set = (f: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     f(e.target.value);
@@ -43,6 +52,11 @@ export function AuditLog() {
         <div>
           <h2>Audit log</h2>
           <p>Every sign-in and every change made in Vaarta 360, newest first. Entries cannot be edited or deleted.</p>
+        </div>
+        <div className="mh-acts">
+          <button className="btn" onClick={invalidate}>
+            ↻ Refresh
+          </button>
         </div>
       </div>
       <div className="card s12">
@@ -97,6 +111,7 @@ export function AuditLog() {
                 setFrom("");
                 setTo("");
                 setQ("");
+                setQSent("");
                 setPage(0);
               }}
             >
@@ -104,7 +119,9 @@ export function AuditLog() {
             </button>
           )}
         </div>
-        {error ? (
+        {badRange ? (
+          <div className="note bad">The From date is after the To date.</div>
+        ) : error ? (
           <ErrorNote msg={error} />
         ) : !data ? (
           <Loading what="the audit log" />

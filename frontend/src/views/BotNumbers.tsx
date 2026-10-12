@@ -6,6 +6,9 @@ import { Loading } from "./common";
 
 type Contact = { phone: string; district: string; name: string | null; username: string | null; active: boolean };
 
+/** "919000010027" → "+91 90000 10027" (stored numbers are digits only). */
+const showPhone = (p: string) => (/^91\d{10}$/.test(p) ? `+91 ${p.slice(2, 7)} ${p.slice(7)}` : /^\d+$/.test(p) ? "+" + p : p);
+
 /** Registered WhatsApp numbers: field reports from the bot are accepted only from these, for their district. */
 export function BotNumbers() {
   const { geo, toast, invalidate } = useApp();
@@ -76,7 +79,7 @@ export function BotNumbers() {
             <tbody>
               {data.map((c) => (
                 <tr key={c.phone}>
-                  <td className="num">{c.phone}</td>
+                  <td className="num nw">{showPhone(c.phone)}</td>
                   <td>{c.district}</td>
                   <td>{c.name || "—"}</td>
                   <td>{c.username || "—"}</td>
@@ -84,10 +87,11 @@ export function BotNumbers() {
                   <td className="r">
                     <button
                       className="btn"
+                      aria-label={`${c.active ? "Turn off" : "Turn on"} ${showPhone(c.phone)}`}
                       onClick={() =>
                         save(
                           { phone: c.phone, district: c.district, name: c.name ?? "", username: c.username ?? "", active: !c.active },
-                          c.active ? `${c.phone} no longer reports.` : `${c.phone} can report again.`,
+                          c.active ? `${showPhone(c.phone)} no longer reports.` : `${showPhone(c.phone)} can report again.`,
                         )
                       }
                     >
