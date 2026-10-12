@@ -1,6 +1,7 @@
 // Per-register KPIs, derived columns and AI notes, ported from the prototype's REGS definitions.
 import { fmt, inr, lakh, nIN, pct, sumA } from "./format";
-import type { CalendarInfo, Row } from "./types";
+import { token } from "./api";
+import type { CalendarInfo, RegisterDef, Row } from "./types";
 
 type K = [string, string | number, string, string?];
 type Num = (r: Row) => number;
@@ -269,4 +270,63 @@ export const REG_LOGIC: Record<string, { kpis: (a: Row[], c: RegCtx) => K[]; ai:
     ai: () =>
       "Most RTI applications ask about advertisement spend by outlet. The agent drafts replies straight from the spend data, so the Advertisement wing only reviews and signs.",
   },
+};
+
+// ---------- Record editing: stage moves, form values and the write calls ----------
+
+/** Stages off the main path (returned, rejected, on hold ...). "Move to next stage" skips them, as the server does. */
+export const SIDE_STAGES = ["Returned", "Rejected", "On hold", "Not needed", "Referred to Returning Officer", "Suspended", "Expired", "Idle", "UC overdue"];
+
+export function nextStage(def: RegisterDef, cur: unknown): string | null {
+  const s = String(cur ?? "");
+  const i = def.order.indexOf(s);
+  if (i < 0 || SIDE_STAGES.includes(s)) return null;
+  return def.order.slice(i + 1).find((x) => !SIDE_STAGES.includes(x)) ?? null;
+}
+
+export type FormVals = Record<string, string>;
+
+/** Form values for a record (or a blank record with sensible defaults for the user's scope). */
+export function formValues(def: RegisterDef, row: Row | null, d: { district?: string | null; department?: string | null; fy: string }): FormVals {
+  const o: FormVals = {};
+  def.schema.forEach((f) => {
+    const v = row ? row[f.k] : undefined;
+    if (v !== undefined && v !== null) o[f.k] = String(v);
+    else if (f.k === def.status) o[f.k] = def.order[0];
+    else if (f.t === "district") o[f.k] = d.district ?? "";
+    else if (f.k === "department") o[f.k] = d.department ?? "";
+    else if (f.t === "fy") o[f.k] = d.fy;
+    else o[f.k] = "";
+  });
+  return o;
+}
+
+/** A failed write. `errors` maps a field key to the server's message for it. */
+export class RowError extends Error {
+  constructor(public status: number, message: string, public errors: Record<string, string> = {}) {
+    super(message);
+  }
+}
+
+async function write<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const t = token.get();
+  if (t) headers.Authorization = "Bearer " + t;
+  const res = await fetch("/api" + path, { method, headers, body: JSON.stringify(body ?? {}) });
+  const text = await res.text();
+  let j: { message?: string; errors?: Record<string, string> } | null = null;
+  try {
+    j = text ? JSON.parse(text) : null;
+  } catch {
+    /* not JSON */
+  }
+  if (!res.ok) throw new RowError(res.status, j?.message || res.statusText || "Request failed", j?.errors || {});
+  return j as T;
+}
+
+export const records = {
+  create: (reg: string, row: FormVals) => write<Row>("POST", `/registers/${reg}/rows`, row),
+  update: (reg: string, id: number, row: FormVals) => write<Row>("PUT", `/registers/${reg}/rows/${id}`, row),
+  advance: (reg: string, id: number, stage?: string) => write<Row>("POST", `/registers/${reg}/rows/${id}/advance`, stage ? { stage } : {}),
+  remove: (reg: string, id: number) => write<{ deleted: number }>("DELETE", `/registers/${reg}/rows/${id}`),
 };
