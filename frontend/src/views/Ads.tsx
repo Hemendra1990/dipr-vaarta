@@ -3,7 +3,7 @@ import { Fragment, useState } from "react";
 import { HBars, KpiTile, Scatter, Spark } from "@/components/charts";
 import { api } from "@/lib/api";
 import { fmt, hash, rs } from "@/lib/format";
-import { CHILD_LVL, label, nodeKey } from "@/lib/geo";
+import { CHILD_LVL, label, nodeKey, talukOf } from "@/lib/geo";
 import { useApi, useApp } from "@/lib/store";
 import type { AdFlagReview } from "@/lib/types";
 import { ErrorNote, Loading } from "./common";
@@ -18,7 +18,7 @@ export function Ads() {
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="audit data" />;
   const m = o.M(n, f),
-    fl = data.filter((x) => geo.inNode(x.district, n) || n.lvl === "state");
+    fl = data.filter((x) => geo.inNode(x.district, n, talukOf(x)) || n.lvl === "state");
   const med = (
     [
       ["Kannada dailies", 0.38],
