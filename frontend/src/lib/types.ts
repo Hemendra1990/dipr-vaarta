@@ -73,3 +73,16 @@ export type FeedEntry = FeedItem & { channel?: string | null };
 export type ClaimHistory = { at: string; who: string; action: string; detail: string };
 export type ClaimDetail = { claim: ClaimInfo; history: ClaimHistory[]; related: ClaimInfo[]; canEdit: boolean; canPublish: boolean };
 export type LiveUpdates = { now: string; claims: ClaimInfo[]; feed: FeedEntry[] };
+// ---- Users & access, audit log (admin feature) ----
+export type AdminUser = {
+  id: number; username: string; displayName: string; role: string; roleTitle: string; icon: string; color: string; scope: string;
+  district: string | null; department: string | null; vendorId: string | null; active: boolean; locked: boolean;
+  lockedUntil: string | null; lastSignInAt: string | null; createdAt: string | null; mustChangePassword: boolean; self: boolean;
+};
+export type UserOptions = {
+  roles: { role: string; title: string; scopeNeeded: "district" | "department" | "vendor" | null; defaultScope: string }[];
+  districts: string[]; departments: string[]; vendors: { id: string; name: string }[]; minPassword: number;
+};
+export type AuditRow = { id: number; username: string; action: string; detail: string | null; at: string };
+export type AuditPage = { items: AuditRow[]; total: number; page: number; size: number; pages: number };
+export type AuditFacets = { users: string[]; actions: string[]; groups: string[] };

@@ -2,6 +2,7 @@
 import { useApp } from "@/lib/store";
 import { Ads } from "./Ads";
 import { AIView } from "./AIView";
+import { AuditLog } from "./AuditLog";
 import { Offices } from "./Offices";
 import { Overview } from "./Overview";
 import { Press } from "./Press";
@@ -9,6 +10,7 @@ import { RegisterView } from "./RegisterView";
 import { Spend } from "./Spend";
 import { Tipline } from "./Tipline";
 import { UploadView } from "./UploadView";
+import { Users } from "./Users";
 
 /** Picks the module view for the current tab. */
 export function ViewSwitch() {
@@ -30,6 +32,10 @@ export function ViewSwitch() {
       return <Spend />;
     case "upload":
       return <UploadView />;
+    case "users":
+      return <Users />;
+    case "audit":
+      return <AuditLog />;
   }
   const def = meta.registers.find((r) => r.id === tab);
   return def ? <RegisterView def={def} /> : <div className="empty">This module is not available to your login.</div>;

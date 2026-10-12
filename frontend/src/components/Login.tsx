@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, token } from "@/lib/api";
 import type { User } from "@/lib/types";
+import { ChangePassword } from "./PasswordDialog";
 import { ThemeButton } from "./Theme";
 
 type Tile = { role: string; key: string; title: string; scope: string; user: string; icon: string; color: string };
@@ -34,6 +35,8 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
   const [ans, setAns] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Signed in with a password the Commissioner's office issued: ask for a new one before entering.
+  const [pending, setPending] = useState<User | null>(null);
 
   const newCap = () => {
     setAns("");
@@ -72,9 +75,15 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
     if (!cap) return;
     setBusy(true);
     try {
-      const r = await api.post<{ token: string; user: User }>("/auth/login", { username: user.trim(), password: pass, captchaId: cap.id, captchaAnswer: ans });
+      const r = await api.post<{ token: string; user: User; mustChangePassword?: boolean }>("/auth/login", {
+        username: user.trim(),
+        password: pass,
+        captchaId: cap.id,
+        captchaAnswer: ans,
+      });
       token.set(r.token);
-      onSignedIn(r.user);
+      if (r.mustChangePassword) setPending(r.user);
+      else onSignedIn(r.user);
     } catch (x) {
       setErr(x instanceof ApiError ? x.message : "Sign-in failed.");
       newCap();
@@ -178,6 +187,7 @@ export function Login({ onSignedIn }: { onSignedIn: (u: User) => void }) {
           </p>
         </form>
       </div>
+      {pending && <ChangePassword forced current={pass} onClose={() => onSignedIn(pending)} onDone={() => onSignedIn(pending)} />}
     </section>
   );
 }
