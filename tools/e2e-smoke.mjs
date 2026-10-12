@@ -9,7 +9,7 @@ const BASE = process.argv[2] || "http://localhost:3000";
 const SHOTS = process.argv[3] || "";
 const ROLES = ["COMMISSIONER", "JD_NEWS", "DD_ACCOUNTS", "DIO", "DEPT_NODAL", "VENDOR", "FILM_SECTION"];
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
+const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined, args: ["--no-proxy-server"] });
 let failures = 0;
 for (const role of ROLES) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });

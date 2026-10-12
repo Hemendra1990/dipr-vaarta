@@ -21,12 +21,15 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
 
   // The landing module is the first one in the role's own list (prototype allowedTabs()[0]), e.g. Spend for Accounts.
   const homeTab = useMemo(() => user.modules.find((k) => allowedTabs.includes(k)) ?? allowedTabs[0], [user, allowedTabs]);
+  // The address names the module and the drill position: #tipline or #tipline/Kalaburagi/Raichur/Sindhanur.
+  const fromHash = () => parseHash(typeof window !== "undefined" ? window.location.hash : "", geo, sc);
   const initialTab = () => {
-    const h = typeof window !== "undefined" ? window.location.hash.slice(1) : "";
+    const h = fromHash().tab;
     return allowedTabs.includes(h) ? h : homeTab;
   };
+  const pinned: Drill = sc ? { div: geo.DIV_OF[sc], dist: sc, tlk: null } : { div: null, dist: null, tlk: null };
   const [tab, setTabRaw] = useState<string>(initialTab);
-  const [drill, setDrill] = useState<Drill>(() => (sc ? { div: geo.DIV_OF[sc], dist: sc, tlk: null } : { div: null, dist: null, tlk: null }));
+  const [drill, setDrill] = useState<Drill>(() => fromHash().drill ?? pinned);
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [version, setVersion] = useState(0);
   const [agent, setAgent] = useState<AgentRun | null>(null);
@@ -49,11 +52,15 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
   }, [hasOutreach, geo, meta, toast]);
 
   // Each module has its own URL (#tipline); browser back / forward move between the modules visited.
+  // Drilling only rewrites the current entry, so Back still goes to the previous module, at the place it was left.
+  const drillRef = useRef(drill);
+  drillRef.current = drill;
   const setTab = useCallback(
     (t: string) => {
       if (!allowedTabs.includes(t)) return;
       setTabRaw(t);
-      if (window.location.hash.slice(1) !== t) history.pushState(null, "", "#" + t);
+      const h = hashFor(t, drillRef.current);
+      if (window.location.hash !== h) history.pushState(null, "", h);
       window.scrollTo(0, 0);
     },
     [allowedTabs],
@@ -61,22 +68,30 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
   const tabRef = useRef(tab);
   tabRef.current = tab;
   useEffect(() => {
-    // the address bar always names the module in view; an unknown or forbidden hash falls back to it
-    if (window.location.hash.slice(1) !== tabRef.current) history.replaceState(null, "", "#" + tabRef.current);
+    // the address bar always names the module and place in view
+    const h = hashFor(tab, drill);
+    if (window.location.hash !== h) history.replaceState(null, "", h);
+  }, [tab, drill]);
+  useEffect(() => {
+    // an unknown or forbidden module, or a place outside the login's area, falls back to what is on screen
     const onNav = () => {
-      const h = window.location.hash.slice(1);
-      if (h === tabRef.current) return;
-      if (allowedTabs.includes(h)) {
-        setTabRaw(h);
-        window.scrollTo(0, 0);
-      } else {
-        if (h) toast("Not available", "Your login cannot open that module.");
-        history.replaceState(null, "", "#" + tabRef.current);
+      const p = parseHash(window.location.hash, geo, sc);
+      if (p.tab && !allowedTabs.includes(p.tab)) {
+        toast("Not available", "Your login cannot open that module.");
+        history.replaceState(null, "", hashFor(tabRef.current, drillRef.current));
+        return;
       }
+      if (p.tab && p.tab !== tabRef.current) {
+        setTabRaw(p.tab);
+        window.scrollTo(0, 0);
+      }
+      if (p.drill && hashFor("", p.drill) !== hashFor("", drillRef.current)) setDrill(p.drill);
+      else if (!p.drill && p.path) toast("Outside your area", sc ? `This login covers ${sc} district only.` : "That place is not in Karnataka's district list.");
+      if (!p.tab || !p.drill) history.replaceState(null, "", hashFor(p.tab && allowedTabs.includes(p.tab) ? p.tab : tabRef.current, p.drill ?? drillRef.current));
     };
     window.addEventListener("popstate", onNav);
     return () => window.removeEventListener("popstate", onNav);
-  }, [allowedTabs, toast]);
+  }, [allowedTabs, toast, geo, sc]);
 
   const node: Node = useMemo(() => {
     if (drill.tlk) return { lvl: "tlk", name: drill.tlk, div: drill.div!, dist: drill.dist! };
@@ -91,10 +106,13 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
         toast("Outside your area", `This login covers ${sc} district only.`);
         return;
       }
+      // names that are not places (a stale chart, a typo in a link) are ignored rather than shown as empty views
       if (o.lvl === "state") setDrill({ div: null, dist: null, tlk: null });
-      else if (o.lvl === "div") setDrill({ div: o.name!, dist: null, tlk: null });
-      else if (o.lvl === "dist") setDrill({ div: geo.DIV_OF[o.name!], dist: o.name!, tlk: null });
-      else if (o.lvl === "tlk") setDrill((d) => (d.dist ? { ...d, tlk: o.name! } : d));
+      else if (o.lvl === "div") {
+        if (o.name && geo.DIVS[o.name]) setDrill({ div: o.name, dist: null, tlk: null });
+      } else if (o.lvl === "dist") {
+        if (o.name && geo.DIV_OF[o.name]) setDrill({ div: geo.DIV_OF[o.name], dist: o.name, tlk: null });
+      } else if (o.lvl === "tlk") setDrill((d) => (d.dist && o.name && (geo.TALUKS[d.dist] || []).includes(o.name) ? { ...d, tlk: o.name } : d));
     },
     [sc, geo, toast],
   );
@@ -311,3 +329,34 @@ function Slicers({ filters, setFilters, schemes }: { filters: Filters; setFilter
 }
 
 export { CHILD_LVL };
+
+const enc = (x: string) => encodeURIComponent(x).replace(/%20/g, "+");
+const dec = (x: string) => {
+  try {
+    return decodeURIComponent(x.replace(/\+/g, " "));
+  } catch {
+    return "";
+  }
+};
+
+/** "#tipline/Kalaburagi/Raichur/Sindhanur" for a module and a drill position. */
+function hashFor(tab: string, d: Drill): string {
+  return "#" + [tab, d.div, d.dist, d.tlk].filter((x): x is string => !!x).map(enc).join("/");
+}
+
+/**
+ * Reads the module and place from the address. drill is null when the address names no place (path empty) or a place
+ * that does not exist or lies outside the login's district (path set); a district login always gets its district.
+ */
+function parseHash(h: string, geo: Geo, sc: string | null | undefined): { tab: string; path: boolean; drill: Drill | null } {
+  const [tab = "", ...rest] = h.replace(/^#/, "").split("/").map(dec);
+  const [div, dist, tlk] = rest;
+  const path = rest.some(Boolean);
+  const bad = { tab, path, drill: null };
+  if (!path) return bad;
+  if (!geo.DIVS[div]) return bad;
+  if (dist && geo.DIV_OF[dist] !== div) return bad;
+  if (tlk && (!dist || !(geo.TALUKS[dist] || []).includes(tlk))) return bad;
+  if (sc && dist !== sc) return bad;
+  return { tab, path, drill: { div, dist: dist || null, tlk: tlk || null } };
+}
