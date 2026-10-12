@@ -1,7 +1,7 @@
 // Spend analytics model, ported from the prototype: filters, period roll-ups, budget comparison and insights.
 import { MON, sumA } from "./format";
 import { api, ApiError, token } from "./api";
-import type { BudgetRow, CalendarInfo, SpendRow, User } from "./types";
+import type { BudgetRow, CalendarInfo, SpendRow, User, WithTaluk } from "./types";
 import type { Period } from "@/components/charts";
 
 export type SpState = {
@@ -30,7 +30,8 @@ export function fyMonths(fy: string): string[] {
 
 export const chv = (channels: string[]) => (c: string) => "var(--ch" + (channels.indexOf(c) + 1) + ")";
 
-type Ig = { fy?: boolean; ct?: boolean; ch?: boolean; vc?: boolean };
+/** Filters to ignore: year, campaign type, channel, vendor/campaign, and place (the drill node). */
+type Ig = { fy?: boolean; ct?: boolean; ch?: boolean; vc?: boolean; geo?: boolean };
 
 export class SpendModel {
   /** Rows that count in spend figures (cancelled orders left out). `all` keeps them for the order lists. */
@@ -60,7 +61,7 @@ export class SpendModel {
         (sp.dept === "All" || r.department === sp.dept) &&
         (ig.vc || !sp.vendor || r.vendorId === sp.vendor) &&
         (ig.vc || !sp.campaign || r.campaignId === sp.campaign) &&
-        this.geoOk(r),
+        (ig.geo || this.geoOk(r)),
     );
   }
 
@@ -158,7 +159,7 @@ export class SpendModel {
 
 // ---- Release-order workflow: issue → bill (vendor) → pay (accounts), and budget edits ----
 
-export type SpendOrderRow = SpendRow & {
+export type SpendOrderRow = SpendRow & WithTaluk & {
   /** `amount` is what spend figures count (bill amount once billed or paid); `orderAmount` is the amount on the RO. */
   orderAmount?: number; cancelledBy?: string; cancelledOn?: string; cancelReason?: string;
   id: number; billNo?: string; billAmount?: number; billDate?: string; paidOn?: string; paymentRef?: string; issuedBy?: string; issuedOn?: string;
@@ -185,6 +186,8 @@ export const orderAmt = (r: SpendOrderRow) => r.orderAmount ?? r.amount;
 
 export type IssueInput = {
   campaignId: string; campaign: string; ctype: string; department: string; channel: string; vendorId: string; district: string; month: string; amount: number;
+  /** Optional taluk of the district; statewide orders have none. */
+  taluk?: string;
 };
 
 async function put<T>(path: string, body: unknown): Promise<T> {

@@ -80,7 +80,7 @@ public class SpendController {
     }
 
     public record IssueRequest(String campaignId, String campaign, String ctype, String department, String channel, String vendorId,
-                               String district, String month, Double amount) {}
+                               String district, String month, Double amount, String taluk) {}
 
     /** Issue a release order. Commissioner and DD Accounts for any district; a DIO for their own district only. */
     @PostMapping("/orders")
@@ -102,6 +102,13 @@ public class SpendController {
         if (!v.district.equals(district))
             throw new IllegalArgumentException(v.id + " is a " + ("Statewide".equals(v.district) ? "statewide" : v.district) + " vendor, so it cannot take an order for "
                     + district + ".");
+        // optional taluk: must belong to the district; statewide orders have none
+        String taluk = null;
+        if (r.taluk() != null && !r.taluk().isBlank()) {
+            if ("Statewide".equals(district)) throw new IllegalArgumentException("Statewide orders have no taluk; leave it empty.");
+            taluk = ref.talukOf(district, r.taluk());
+            if (taluk == null) throw new IllegalArgumentException("Not a taluk of " + district + ": " + r.taluk().trim() + ".");
+        }
         YearMonth ym;
         try { ym = YearMonth.parse(req(r.month(), "Month", 7)); } catch (DateTimeParseException e) { throw new IllegalArgumentException("Month must look like 2026-10."); }
         String fy = Calendar.fyOf(ym);
@@ -117,11 +124,11 @@ public class SpendController {
         o.roNo = nextRoNo(fy);
         o.fy = fy; o.month = ym.toString(); o.quarter = Calendar.quarterOf(ym);
         o.campaignId = campaignId; o.campaign = campaign; o.ctype = ctype; o.department = dept; o.channel = channel;
-        o.vendorId = v.id; o.vendor = v.name; o.district = district; o.amount = amount; o.status = ISSUED;
+        o.vendorId = v.id; o.vendor = v.name; o.district = district; o.taluk = taluk; o.amount = amount; o.status = ISSUED;
         o.issuedBy = u.username(); o.issuedOn = LocalDate.now().toString();
         addHistory(o, u, "Release order issued", "₹" + lakh(amount) + " L to " + v.id + " for " + ym);
         orders.save(o);
-        audit.record(u, "spend.issue", o.roNo + " · " + v.id + " · " + district + " · ₹" + lakh(amount) + " L · " + campaignId);
+        audit.record(u, "spend.issue", o.roNo + " · " + v.id + " · " + district + (taluk != null ? " / " + taluk : "") + " · ₹" + lakh(amount) + " L · " + campaignId);
         return order(u, o.id);
     }
 

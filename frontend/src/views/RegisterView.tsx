@@ -4,7 +4,7 @@ import { BarList, Kpi } from "@/components/charts";
 import { fmt, lakh, nIN, toneOf } from "@/lib/format";
 import { CHILD_LVL, geoChildren, label } from "@/lib/geo";
 import { api } from "@/lib/api";
-import { derive, formValues, makeCtx, nextStage, records, REG_LOGIC, RowError, type FormVals, type RegAction } from "@/lib/registers";
+import { derive, formValues, makeCtx, nextStage, placeOk, records, REG_LOGIC, RowError, taggedDistricts, untagged, type FormVals, type RegAction } from "@/lib/registers";
 import { useApi, useApp } from "@/lib/store";
 import type { FieldDef, Meta, RegisterDef, Row, User } from "@/lib/types";
 import { colDef, Empty, ErrorNote, FmtCell, isNumT, Loading } from "./common";
@@ -32,7 +32,8 @@ export function RegisterView({ def }: { def: RegisterDef }) {
   const canWrite = canSee(def.id) && !user.vendorId && user.role !== "VENDOR";
 
   const rows = useMemo(() => (data ?? []).map((r) => derive(def.id, r, ctx)), [data, def.id, ctx]);
-  const all = useMemo(() => (def.geoAll ? rows : rows.filter((r) => geo.geoOk(r, node))), [rows, def.geoAll, geo, node]);
+  const tagged = useMemo(() => taggedDistricts(rows), [rows]);
+  const all = useMemo(() => (def.geoAll ? rows : rows.filter((r) => placeOk(geo, tagged, r, node))), [rows, def.geoAll, geo, tagged, node]);
 
   if (error) return <ErrorNote msg={error} />;
   if (!data) return <Loading what={def.title.toLowerCase()} />;
@@ -66,7 +67,7 @@ export function RegisterView({ def }: { def: RegisterDef }) {
     }));
   const kids = def.geoAll ? [] : geoChildren(geo, node).filter((ch) => ch.lvl !== "tlk" || all.some((r) => r.taluk));
   const geoItems = kids
-    .map((ch) => ({ l: label(ch), v: all.filter((r) => geo.geoOk(r, ch)).length, ch }))
+    .map((ch) => ({ l: label(ch), v: all.filter((r) => placeOk(geo, tagged, r, ch)).length, ch }))
     .sort((a, b) => b.v - a.v)
     .slice(0, 10)
     .map((x) => ({ l: x.l, v: x.v, d: nIN(x.v), onClick: () => drillTo({ lvl: x.ch.lvl, name: x.ch.name }) }));
@@ -91,6 +92,9 @@ export function RegisterView({ def }: { def: RegisterDef }) {
   const cols = def.cols.map((c) => colDef(def.schema, c));
   const show = list.slice(0, limit);
   const hasGeo = kids.length > 0;
+  const noTlk = def.geoAll ? 0 : untagged(all, node);
+  // A taluk node in a district whose rows carry no taluk (e.g. uploaded without a Taluk column) shows the whole district.
+  const tlkFallback = !def.geoAll && node.lvl === "tlk" && !tagged.has(node.dist!);
 
   return (
     <div className="grid">
@@ -135,6 +139,22 @@ export function RegisterView({ def }: { def: RegisterDef }) {
           <span>{def.banner}</span>
         </div>
       )}
+      {def.geoAll && node.lvl !== "state" && (
+        <div className="s12 note">
+          <span className="chip ind">Statewide register</span>
+          <span>
+            {def.title} are not tied to a place, so this page shows the whole state at every level. {label(node)} is not applied here.
+          </span>
+        </div>
+      )}
+      {tlkFallback && (
+        <div className="s12 note">
+          <span className="chip warn">No taluk</span>
+          <span>
+            These {def.title.toLowerCase()} records do not say which taluk they belong to, so {node.name} shows all of {node.dist} district.
+          </span>
+        </div>
+      )}
       <div className="s12 kpis">
         {k.map(([l, v, s, t]) => (
           <Kpi key={l} l={l} v={v} s={s} t={t} />
@@ -167,6 +187,7 @@ export function RegisterView({ def }: { def: RegisterDef }) {
             </div>
           </div>
           <BarList items={geoItems} />
+          {noTlk > 0 && <p className="cap">{nIN(noTlk)} records have no taluk and count only at district level.</p>}
         </div>
       )}
       <div className="card s12">

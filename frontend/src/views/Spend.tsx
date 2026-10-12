@@ -8,6 +8,7 @@ import {
   statusLabel, statusTone,
 } from "@/lib/spend";
 import type { OrderDetail, SpendOrderRow, SpState } from "@/lib/spend";
+import { placeOk, taggedDistricts, untagged } from "@/lib/registers";
 import { useApi, useApp } from "@/lib/store";
 import type { BudgetRow, Meta, Row, SpendRow, VendorInfo } from "@/lib/types";
 import { ErrorNote, Loading } from "./common";
@@ -67,9 +68,12 @@ export function Spend() {
     CUR = cal.curFy,
     EL = cal.elapsed;
   const CHV = chv(CHANNELS);
+  // Orders carry a taluk (statewide ones do not); a taluk node matches it strictly where the district's orders are tagged.
+  const tagged = useMemo(() => taggedDistricts(orders.data ?? []), [orders.data]);
+  const inNode = useMemo(() => (r: SpendRow) => placeOk(geo, tagged, r, n), [geo, tagged, n]);
   const model = useMemo(
-    () => new SpendModel(orders.data ?? [], budget.data ?? [], cal, CHANNELS, (r) => geo.geoOk(r, n), n.lvl === "state", !!user.vendorId),
-    [orders.data, budget.data, cal, CHANNELS, geo, n, user.vendorId],
+    () => new SpendModel(orders.data ?? [], budget.data ?? [], cal, CHANNELS, inNode, n.lvl === "state", !!user.vendorId),
+    [orders.data, budget.data, cal, CHANNELS, inNode, n, user.vendorId],
   );
   if (orders.error) return <ErrorNote msg={orders.error} />;
   if (!orders.data || !budget.data) return <Loading what="spend data" />;
@@ -131,22 +135,26 @@ export function Spend() {
   const cArr = Object.values(cg).sort((a, b) => b.s - a.s);
   const cb: Record<string, number> = {};
   camps.forEach((c) => (cb[String(c.campaignId)] = +c.budget));
-  const geoKids = n.lvl === "state" || n.lvl === "div" ? geoChildren(geo, n) : [];
-  const swAmt = sumA(model.base(SP).filter((r) => r.district === "Statewide" && isBooked(r)));
+  // State → divisions, division → districts, district → taluks (when its orders carry taluks); a taluk lists its vendors.
+  const geoKids = n.lvl === "state" || n.lvl === "div" || (n.lvl === "dist" && tagged.has(n.dist!)) ? geoChildren(geo, n) : [];
   const geoAll = model.rows.filter(
     (r) =>
       isBooked(r) && (SP.fy === "All" || r.fy === SP.fy) && (SP.ctype === "All" || r.ctype === SP.ctype) && (SP.channel === "All" || r.channel === SP.channel) &&
       (SP.dept === "All" || r.department === SP.dept) && (!SP.vendor || r.vendorId === SP.vendor) && (!SP.campaign || r.campaignId === SP.campaign) && r.district !== "Statewide",
   );
   const geoIt = geoKids
-    .map((c) => ({ l: label(c), v: sumA(geoAll.filter((r) => geo.geoOk(r, c))), c }))
+    .map((c) => ({ l: label(c), v: sumA(geoAll.filter((r) => placeOk(geo, tagged, r, c))), c }))
     .sort((a, b) => b.v - a.v)
     .map((x) => ({ l: x.l, v: x.v, d: lakh(x.v), onClick: () => drillTo({ lvl: x.c.lvl, name: x.c.name }) }));
+  // Statewide media is not split by place: the amount in this selection, whatever the drill level.
+  const swAmt = sumA(model.base(SP, { geo: true }).filter((r) => r.district === "Statewide" && isBooked(r)));
+  const noTlk = untagged(geoAll.filter((r) => geo.geoOk(r, n)), n);
+  const vendorIt = vArr.slice(0, 10).map(([id, v]) => ({ l: id, v, d: lakh(v), on: SP.vendor === id, onClick: () => set({ vendor: SP.vendor === id ? null : id }) }));
 
   // Same campaign type across years
   const ts: Record<string, number> = {};
   model.rows.forEach((r) => {
-    if (isBooked(r) && geo.geoOk(r, n) && (SP.dept === "All" || r.department === SP.dept)) ts[r.ctype] = (ts[r.ctype] || 0) + r.amount;
+    if (isBooked(r) && inNode(r) && (SP.dept === "All" || r.department === SP.dept)) ts[r.ctype] = (ts[r.ctype] || 0) + r.amount;
   });
   let cmp = SP.cmp;
   if (!ts[cmp]) {
@@ -155,7 +163,7 @@ export function Spend() {
   }
   // as in the prototype, the fallback type sticks (it becomes the selected type)
   if (cmp !== SP.cmp) setSPRaw((s) => ({ ...s, cmp }));
-  const yRows = model.rows.filter((r) => r.ctype === cmp && isBooked(r) && (SP.dept === "All" || r.department === SP.dept) && geo.geoOk(r, n) && (!SP.l4l || monIdx(r.month) < 6));
+  const yRows = model.rows.filter((r) => r.ctype === cmp && isBooked(r) && (SP.dept === "All" || r.department === SP.dept) && inNode(r) && (!SP.l4l || monIdx(r.month) < 6));
   const yP = FYS.map((fy) => ({ key: fy, label: "FY " + fy.slice(2), fy }));
   const ySer = CHANNELS.map((c) => FYS.map((fy) => sumA(yRows.filter((r) => r.fy === fy && r.channel === c))));
   const yTot = FYS.map((_, i) => ySer.reduce((s, a) => s + a[i], 0));
@@ -646,20 +654,32 @@ export function Spend() {
           <div className="card s4">
             <div className="ch">
               <div>
-                <h3>{geoKids.length ? "By " + CHILD_LVL[n.lvl].replace(/s$/, "") : "District media buys"}</h3>
-                <p>District papers, outdoor and field shows. Select to drill down.</p>
+                <h3>{geoKids.length ? "By " + CHILD_LVL[n.lvl].replace(/s$/, "") : n.lvl === "tlk" ? "Taluk media buys" : "District media buys"}</h3>
+                <p>
+                  {geoKids.length
+                    ? "District papers, outdoor and field shows. Select to drill down."
+                    : "Vendors paid for orders in this place · select to filter"}
+                </p>
               </div>
             </div>
             {geoKids.length ? (
-              <BarList items={geoIt} />
+              <>
+                <BarList items={geoIt} />
+                {noTlk > 0 && <p className="cap">{nIN(noTlk)} orders have no taluk and count only at district level.</p>}
+              </>
             ) : (
-              <p className="cap">
-                {lakh(sumA(bk))} spent through {n.dist || ""} vendors in this selection.
-              </p>
+              <>
+                <p className="cap">
+                  {lakh(spent)} spent through {nIN(vArr.length)} vendor{vArr.length === 1 ? "" : "s"} in {label(n)} in this selection.
+                </p>
+                {vendorIt.length > 0 && <BarList items={vendorIt} />}
+              </>
             )}
-            <div className="note" style={{ marginTop: 12 }}>
-              {lakh(swAmt)} went to statewide media (TV, statewide papers, digital) and is not split by district.
-            </div>
+            {swAmt > 0 && (
+              <div className="note" style={{ marginTop: 12 }}>
+                {lakh(swAmt)} went to statewide media (TV, statewide papers, digital) and is not split by district.
+              </div>
+            )}
           </div>
           <OrdersCard rows={listed} onOpen={(id) => setDlg({ k: "order", id })} onAct={setDlg} />
         </>
@@ -772,7 +792,7 @@ function useSubmit(onDone: () => void) {
 }
 
 function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow[]; vendors: VendorInfo[]; onClose: () => void; onIssued: (id: number) => void }) {
-  const { user, meta } = useApp();
+  const { user, meta, node } = useApp();
   const ref = meta.reference;
   const cal = meta.calendar;
   const districts = useMemo(() => Object.values(ref.divisions).flat().sort(), [ref.divisions]);
@@ -783,8 +803,8 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
   }, [rows, cal]);
   const thisMonth = cal.asOf.slice(0, 7);
   const [f, setF] = useState({
-    pick: "", campaignId: "", campaign: "", ctype: ref.campaignTypes[0], department: ref.departments[0], district: user.district || "Statewide",
-    channel: ref.channels[0], vendorId: "", month: thisMonth, amount: "",
+    pick: "", campaignId: "", campaign: "", ctype: ref.campaignTypes[0], department: ref.departments[0], district: user.district || (node.lvl === "dist" || node.lvl === "tlk" ? node.dist! : "Statewide"),
+    taluk: node.lvl === "tlk" ? node.name : "", channel: ref.channels[0], vendorId: "", month: thisMonth, amount: "",
   });
   const up = (p: Partial<typeof f>) => setF((s) => ({ ...s, ...p }));
   const isNew = f.pick === "";
@@ -806,7 +826,7 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
         campaign: c ? c.campaign : f.campaign.trim(),
         ctype: c ? c.ctype : f.ctype,
         department: c ? c.department : f.department,
-        channel, vendorId, district: f.district, month: f.month, amount,
+        channel, vendorId, district: f.district, taluk: f.taluk || undefined, month: f.month, amount,
       });
       onIssued(o.id);
       return { title: "Release order issued", body: `${o.roNo} · ${o.vendorId} · ${lakh(o.amount)}` };
@@ -850,13 +870,23 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
           </>
         )}
         <Fld l="District">
-          <select value={f.district} disabled={!!user.district} onChange={(e) => up({ district: e.target.value })}>
+          <select value={f.district} disabled={!!user.district} onChange={(e) => up({ district: e.target.value, taluk: "" })}>
             {!user.district && <option value="Statewide">Statewide</option>}
             {(user.district ? [user.district] : districts).map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
         </Fld>
+        {f.district !== "Statewide" && (
+          <Fld l="Taluk (optional)">
+            <select value={f.taluk} onChange={(e) => up({ taluk: e.target.value })}>
+              <option value="">Whole district</option>
+              {(ref.taluks[f.district] ?? []).map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+            </select>
+          </Fld>
+        )}
         <Fld l="Channel">
           <select value={channel} onChange={(e) => up({ channel: e.target.value })}>
             {(chOpts.length ? chOpts : ref.channels).map((x) => (
@@ -1089,6 +1119,7 @@ function OrderPanel({ id, onClose, onAct }: { id: number; onClose: () => void; o
         ["Vendor", o.vendor],
         ["Channel", o.channel],
         ["District", o.district],
+        ...(o.taluk ? ([["Taluk", o.taluk]] as [string, React.ReactNode][]) : []),
         ["Month", `${dShow(o.month)} · ${o.fy} ${o.quarter}`],
         ["Order amount", lakh(orderAmt(o))],
         ["Bill", o.billNo ? `${o.billNo} · ${lakh(o.billAmount ?? 0)} · ${dShow(o.billDate)}` : "—"],
