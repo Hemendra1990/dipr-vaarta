@@ -5,7 +5,12 @@ import gov.dipr.vaarta.reference.ReferenceData;
 import gov.dipr.vaarta.repo.ClaimRepo;
 import gov.dipr.vaarta.security.CurrentUser;
 import gov.dipr.vaarta.security.Role;
+import gov.dipr.vaarta.domain.AuditEvent;
+import gov.dipr.vaarta.repo.AuditEventRepo;
 import gov.dipr.vaarta.service.AuditService;
+import gov.dipr.vaarta.service.BotService;
+import org.springframework.data.domain.Example;
+import org.springframework.data.domain.ExampleMatcher;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -13,7 +18,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Objects;
+import java.util.Set;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -24,9 +32,10 @@ public class TiplineController {
     private final ClaimRepo claims;
     private final ReferenceData ref;
     private final AuditService audit;
+    private final AuditEventRepo auditLog;
 
-    public TiplineController(ClaimRepo claims, ReferenceData ref, AuditService audit) {
-        this.claims = claims; this.ref = ref; this.audit = audit;
+    public TiplineController(ClaimRepo claims, ReferenceData ref, AuditService audit, AuditEventRepo auditLog) {
+        this.claims = claims; this.ref = ref; this.audit = audit; this.auditLog = auditLog;
     }
 
     @GetMapping("/claims")
@@ -46,13 +55,12 @@ public class TiplineController {
         if (!ref.isDistrict(req.district())) throw new IllegalArgumentException("Unknown district " + req.district());
         if (!u.districtOk(req.district())) throw new CurrentUser.AccessDeniedException("This login covers " + u.district() + " district only.");
         Claim c = new Claim();
-        int next = claims.findAll().stream().map(x -> x.id).filter(id -> id.startsWith("IDTU-26-"))
-                .mapToInt(id -> Integer.parseInt(id.substring(8))).max().orElse(4500) + 1;
-        c.id = "IDTU-26-" + next;
+        c.id = BotService.nextClaimId(claims);
         c.text = req.text().trim(); c.lang = req.lang(); c.district = req.district(); c.category = req.category();
         c.source = req.source() == null || req.source().isBlank() ? (u.district() != null ? "District office" : "Analytics team") : req.source();
         c.forwards = req.forwards() == null ? 0 : req.forwards();
         c.status = "New"; c.verdict = "—"; c.receivedAt = Instant.now(); c.updatedAt = c.receivedAt;
+        c.createdBy = u.username();
         audit.record(u, "claim.create", c.id);
         return claims.save(c);
     }
@@ -76,6 +84,7 @@ public class TiplineController {
             if (to.equals("Draft ready") && "—".equals(c.verdict)) c.verdict = "Suggested: False";
             if (to.equals("Published")) {
                 u.requireRole(Role.COMMISSIONER, Role.JD_NEWS);
+                if (c.verdict == null || c.verdict.isBlank() || c.verdict.equals("—")) throw new IllegalArgumentException("Set a verdict before publishing.");
                 c.verdict = c.verdict == null ? "False" : c.verdict.replace("Suggested: ", "");
                 c.approvedBy = u.displayName();
             }
@@ -84,5 +93,73 @@ public class TiplineController {
         c.updatedAt = Instant.now();
         audit.record(u, "claim." + to, c.id);
         return c;
+    }
+
+    public record HistoryEntry(Instant at, String who, String action, String detail) {}
+
+    public record ClaimDetail(Claim claim, List<HistoryEntry> history, List<Claim> related, boolean canEdit, boolean canPublish) {}
+
+    /** One claim with its history (from the audit log) and the claims linked to it by duplicate matching. */
+    @GetMapping("/claims/{id}")
+    public ClaimDetail detail(@AuthenticationPrincipal CurrentUser u, @PathVariable String id) {
+        u.requireAny("tipline", "ai");
+        Claim c = find(u, id);
+        AuditEvent probe = new AuditEvent(null, null, id);
+        ExampleMatcher m = ExampleMatcher.matching().withIgnorePaths("id", "at")
+                .withMatcher("detail", ExampleMatcher.GenericPropertyMatchers.startsWith());
+        List<HistoryEntry> h = auditLog.findAll(Example.of(probe, m)).stream()
+                .filter(e -> e.detail.equals(id) || e.detail.startsWith(id + " "))
+                .sorted(Comparator.comparing((AuditEvent e) -> e.at))
+                .map(e -> new HistoryEntry(e.at, e.username.startsWith("bot:") ? "WhatsApp bot" : e.username, e.action, e.detail))
+                .toList();
+        List<Claim> related = new ArrayList<>(claims.findByMatchOf(id));
+        if (c.matchOf != null) claims.findById(c.matchOf).ifPresent(o -> related.add(0, o));
+        return new ClaimDetail(c, h, related.stream().filter(x -> u.districtOk(x.district)).toList(), canEdit(u, c),
+                u.role() == Role.COMMISSIONER || u.role() == Role.JD_NEWS);
+    }
+
+    public record Edit(String verdict, String category, String clarification) {}
+
+    /**
+     * Edit the verdict, category and clarification of a claim before it is published. Same people who can triage
+     * (Commissioner, Joint Director (News), DIO for their district); publishing is still Commissioner / JD (News) only.
+     */
+    @PostMapping("/claims/{id}/edit")
+    @Transactional
+    public Claim edit(@AuthenticationPrincipal CurrentUser u, @PathVariable String id, @RequestBody Edit e) {
+        u.require("tipline");
+        Claim c = find(u, id);
+        if (!canEdit(u, c)) throw new IllegalArgumentException("A " + c.status + " claim can no longer be edited.");
+        List<String> changes = new ArrayList<>();
+        if (e.verdict() != null) {
+            String v = e.verdict().trim();
+            if (v.isEmpty()) v = "—";
+            if (v.length() > 120) throw new IllegalArgumentException("Keep the verdict under 120 characters.");
+            if (!v.equals(c.verdict)) { changes.add("verdict: " + c.verdict + " → " + v); c.verdict = v; }
+        }
+        if (e.category() != null && !e.category().equals(c.category)) {
+            if (!BotService.CATEGORIES.contains(e.category())) throw new IllegalArgumentException("Unknown claim type " + e.category());
+            changes.add("type: " + c.category + " → " + e.category());
+            c.category = e.category();
+        }
+        if (e.clarification() != null) {
+            String t = e.clarification().trim();
+            if (t.length() > 1000) throw new IllegalArgumentException("Keep the clarification under 1,000 characters.");
+            if (!t.equals(Objects.toString(c.clarification, ""))) { changes.add("clarification updated"); c.clarification = t.isEmpty() ? null : t; }
+        }
+        if (changes.isEmpty()) return c;
+        c.updatedAt = Instant.now();
+        audit.record(u, "claim.edit", c.id + " · " + String.join("; ", changes));
+        return c;
+    }
+
+    private Claim find(CurrentUser u, String id) {
+        Claim c = claims.findById(id).orElseThrow(() -> new NoSuchElementException("No claim " + id));
+        if (!u.districtOk(c.district)) throw new CurrentUser.AccessDeniedException("This claim is outside your district.");
+        return c;
+    }
+
+    private static boolean canEdit(CurrentUser u, Claim c) {
+        return u.can("tipline") && u.districtOk(c.district) && !Set.of("Published", "Escalated").contains(c.status);
     }
 }

@@ -17,4 +17,8 @@ public class FeedItem {
     @Column(length = 1000) public String note;
     public String author;
     public Instant createdAt;
+    /** "WhatsApp" when sent through the bot, "Console" when posted in the app; null for sample data. */
+    @Column(length = 20) public String channel;
+    /** Username (or bot:&lt;phone&gt;) that created the item; used to skip your own items in live updates. */
+    public String createdBy;
 }

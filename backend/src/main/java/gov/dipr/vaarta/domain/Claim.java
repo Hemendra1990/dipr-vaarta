@@ -20,4 +20,12 @@ public class Claim {
     public String source;
     public String approvedBy;
     public Instant updatedAt;
+    /** Clarification text sent to people who forwarded the claim (editable before publishing). */
+    @Column(length = 1000) public String clarification;
+    /** For a tipline message that matched an already published claim: that claim's id. */
+    @Column(length = 30) public String matchOf;
+    /** Masked sender number for claims that came in over WhatsApp. */
+    public String contact;
+    /** Username (or bot:&lt;phone&gt;) that created the claim; used to skip your own items in live updates. */
+    public String createdBy;
 }

@@ -42,6 +42,7 @@ public class OfficesController {
         FeedItem f = new FeedItem();
         f.type = req.type(); f.district = dist; f.scheme = blank(req.scheme()); f.sentiment = blank(req.sentiment());
         f.note = req.note().trim(); f.author = u.displayName(); f.createdAt = Instant.now();
+        f.channel = "Console"; f.createdBy = u.username();
         audit.record(u, "feed.post", f.type + " " + dist);
         return repo.save(f);
     }
