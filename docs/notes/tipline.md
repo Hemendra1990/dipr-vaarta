@@ -34,8 +34,8 @@ Env: `BOT_URL` (default `http://localhost:8080/api/bot/inbound`), `VAARTA_BOT_KE
   An unregistered number gets a polite refusal (`accepted: false`) and nothing is stored; the attempt is audited.
 - **Demo numbers:** on first start every district gets `+91 90000 1nnnn`, nnnn = the district's position in the
   reference list (Raichur `+91 90000 10027`, Koppal `+91 90000 10028`). The Raichur number is linked to `dio.raichur`.
-- **Registering numbers:** Commissioner only (`/api/bot/contacts`, audited). No screen was added for it yet; the admin
-  module is the natural home.
+- **Registering numbers:** Commissioner only (`/api/bot/contacts`, audited). The integrator added a "WhatsApp numbers" card on
+  Users & access.
 - **Claims from the tipline:** district comes from the message (case-insensitive match to the 31 districts); if it is
   missing the bot asks for it and stores nothing. A claim from a registered DIO number uses that district and source
   "District office"; other claims have source "Tipline". The sender's number is stored masked (`+91 98450 xxx45`).

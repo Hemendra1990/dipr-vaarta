@@ -20,7 +20,7 @@ their role, and records are filtered to their scope **on the server**.
 
 | Role key | Title | Demo user | Scope | Modules |
 |---|---|---|---|---|
-| `COMMISSIONER` | Commissioner, DIPR | `commr.dipr` | All of Karnataka, every wing | all 24 modules |
+| `COMMISSIONER` | Commissioner, DIPR | `commr.dipr` | All of Karnataka, every wing | all 24 modules + Users & access, Audit log |
 | `JD_NEWS` | Joint Director, News & Media | `jd.news` | Karnataka · news, media, outreach | overview, tipline, media, social, crisis, press, welfare, events, election, archive, ai, upload |
 | `DD_ACCOUNTS` | Deputy Director, Accounts & Advertisement | `dd.accounts` | Karnataka · spend, empanelment, bills | spend, campaigns, empanel, bills, ads, outdoor, field, grants, admin, rti, ai, upload |
 | `DIO` | District Information Officer | `dio.raichur` | Raichur district only | overview, tipline, offices, field, outdoor, events, media, crisis, welfare, campaigns, spend, rti, upload |
@@ -54,6 +54,19 @@ the prototype's note that production adds an OTP is left as a documented extensi
 | AI agents: run, approve, send back | roles with the `ai` module | Every run is stored with the approver. Approval side-effects match the prototype (new press release, claims moved to Triaged, notifications). |
 | Data upload (validate, import append/replace, download template) | roles with the `upload` module, per register | Upload history is persisted. |
 
+| Register records: add, edit, move to next stage | anyone who can open the register, except vendors | DIO: own district only (also on geo-all registers); nodal officer: own department, cannot change it. Same field rules as upload. |
+| Register records: delete | COMMISSIONER | |
+| Register export to Excel | anyone who can open the register | the rows they can see |
+| Press release: draft / record pickup | roles with the `press` module | district/department-pinned users draft only for their scope |
+| Press release: approve & issue | COMMISSIONER, JD_NEWS | REL number continues the seed series; reach 1,210 (State) or 58 (district) as in the prototype |
+| Media kit download | anyone who can see the issued release | counts a kit download |
+| Issue a release order | COMMISSIONER, DD_ACCOUNTS, DIO (own district) | RO number `RO/<yy>/<serial>` |
+| Submit a bill | VENDOR, own orders only | amount ≤ order + 5% |
+| Mark an order paid; edit a budget line | COMMISSIONER, DD_ACCOUNTS | |
+| Edit a claim's verdict/category before publishing | whoever may triage the claim | publishing still COMMISSIONER/JD_NEWS only |
+| Users & access, audit log, WhatsApp numbers | COMMISSIONER | cannot deactivate yourself or change your own role |
+| Change own password | every user | ≥ 8 characters with a digit; 5 wrong passwords lock the login for 15 minutes |
+
 Every write is recorded in an audit log (`audit_event`).
 
 ## 3. Pages (modules)
@@ -84,6 +97,26 @@ Period (7d/30d/quarter), Scheme, Language, Audience with "Clear filters".
 | Spend analytics | Filters (FY, campaign type, channel, department; locked for nodal officer), KPIs, stacked spend-over-time chart (year → quarter → month drill, budget line, run-rate outline), AI insights, budget vs spent by channel (bullet bars) and by department, spend by campaign (channel mix), spend by vendor (running share), same campaign type across years (like-for-like), by division/district. Vendor sees "My release orders and payments". |
 | 16 registers | Campaigns, Empanelment, Bills, Media monitoring, Social media, Crisis advisories, Journalist welfare, Events, Election period, Field & folk, Outdoor, Film, Publications, Archive, Academies & grants, Offices & staff, RTI. Each: header with source chip / WhatsApp chip / Upload button, optional banner, KPIs, stage pipeline (filter), category bars (filter), by-area bars (drill), searchable sortable records table with "Show 30 more", AI note |
 | Data upload | Pick register → 4-step wizard: check the format (Excel layout preview, column rules, template download, copy headings, acknowledgement) → choose file (.xlsx/.xls/.csv ≤10 MB) → review & fix (rows read/ready/problems, missing/extra columns, row-level errors, preview, append/replace) → import; upload history |
+
+## 3a. Functionality beyond the prototype
+
+The prototype shows each module with sample data; the application makes the work behind it real. **Decision:** the
+user asked for "all the modules and functionalities", so every place where the prototype only displays data or fakes
+an action now has a working, server-checked workflow. Detailed decisions per area are in `docs/notes/`:
+
+- **Registers** (`docs/notes/registers.md`): add record, edit in a side panel, move to the next stage (exception
+  stages such as Returned or On hold are only reached by name), delete (Commissioner), Excel export.
+- **Press office** (`docs/notes/press.md`): compose a draft, approve & issue, release detail, media-kit zip download
+  (counted), record pickup. The Press Release Composer agent issues through the same numbering.
+- **Spend** (`docs/notes/spend.md`): issue a release order, vendor submits a bill, accounts marks it paid (with
+  history), "Release orders" card with status filter, budget edit. Charts keep using the order amount.
+- **Tipline, District offices and WhatsApp** (`docs/notes/tipline.md`): `POST /api/bot/inbound` (shared-key webhook)
+  turns WhatsApp messages into claims (auto-answering ones that match a published verdict) and, from registered DIO
+  numbers, into ground-feed items. The console polls `/api/updates` every 15 s and shows the prototype's toasts and
+  unseen badges on Tipline and District offices. Claim detail panel with history and verdict editing.
+- **Administration** (`docs/notes/admin.md`): "Users & access" (create, edit role/scope, deactivate, reset password
+  with a one-time temporary password, unlock, registered WhatsApp numbers) and "Audit log" for the Commissioner;
+  password change for everyone; lockout after 5 wrong passwords.
 
 ## 4. Architecture
 
@@ -131,6 +164,12 @@ frontend/  Next.js 15 (App Router, TypeScript)  ──►  /api/*  ──►  ba
 | `POST /api/uploads/{uploadId}/import` | `{mode: append|replace}` |
 | `GET /api/uploads/history` | Upload history |
 | `GET /api/agents/runs`, `POST /api/agents/{agent}/runs`, `POST /api/agents/runs/{id}/approve`, `.../reject` | Agent runs |
+| `POST /api/registers/{id}/rows`, `PUT .../rows/{rowId}`, `POST .../rows/{rowId}/advance`, `DELETE .../rows/{rowId}`, `GET /api/registers/{id}/export` | Register records |
+| `POST /api/press/releases`, `POST .../{id}/issue`, `.../discard`, `.../pickup`, `GET .../{id}/kit` | Press office |
+| `POST /api/spend/orders`, `POST .../{id}/bill`, `POST .../{id}/pay`, `GET .../{id}`, `PUT /api/spend/budget` | Release-order workflow |
+| `GET /api/tipline/claims/{id}`, `POST .../{id}/edit`, `GET /api/updates?since=` | Claim detail, live updates |
+| `POST /api/bot/inbound` (header `X-Vaarta-Bot-Key`), `GET/POST /api/bot/contacts` | WhatsApp bot |
+| `/api/users…`, `GET /api/audit`, `POST /api/auth/password` | Administration |
 
 ## 6. Running
 

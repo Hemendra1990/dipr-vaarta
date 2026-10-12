@@ -30,7 +30,7 @@ Open http://localhost:3000 and pick a role. All demo users have the password `de
 
 | Sign in as | User ID | Sees |
 |---|---|---|
-| Commissioner, DIPR | `commr.dipr` | everything |
+| Commissioner, DIPR | `commr.dipr` | everything, plus Users & access and Audit log |
 | Joint Director, News & Media | `jd.news` | news, media, outreach, AI agents, upload |
 | Deputy Director, Accounts & Advertisement | `dd.accounts` | spend, empanelment, bills, audit, AI agents, upload |
 | District Information Officer | `dio.raichur` | Raichur district only |
@@ -51,10 +51,25 @@ Backend settings are in `backend/src/main/resources/application.yml` and can be 
 
 The frontend reads `BACKEND_URL` (default `http://localhost:8080`) at build time for the `/api` proxy.
 
+## WhatsApp bot
+
+The bot gateway posts each incoming WhatsApp message to `POST /api/bot/inbound` with the header
+`X-Vaarta-Bot-Key`. Set the key with `VAARTA_BOT_KEY`; the development default is `vaarta-dev-bot-key`, so
+**change it in any shared environment**. Tipline claims come from anyone. Field pulses, reports and escalations are
+accepted only from numbers registered under Users & access → WhatsApp numbers (the demo numbers are
+`+91 90000 1nnnn`; Raichur is `+91 90000 10027`). Try it with the app running:
+
+```bash
+node tools/bot-sim.mjs              # sends all sample messages
+node tools/bot-sim.mjs --every 20   # a random message every 20 s
+```
+
+New claims and feed items appear in the console within 15 seconds, with a toast and a badge on the menu.
+
 ## Tests
 
 ```bash
-cd backend && mvn test     # sign-in, scoping, tipline approval rule, upload validation and scoped replace, audit, agents
+cd backend && mvn test     # 31 tests: access rules, registers, press, spend, tipline/bot, admin, upload, agents
 
 # browser smoke test: signs in as every role and opens every module (backend and frontend running)
 NODE_PATH=$(npm root -g) node tools/e2e-smoke.mjs http://localhost:3000
