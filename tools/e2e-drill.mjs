@@ -45,17 +45,10 @@ const ALLOWED_EMPTY = [
   { module: "upload", re: /Your login has no data to upload/, why: "the role has no uploadable dataset" },
   { module: "offices", re: /No open tasks from HQ/, why: "HQ tasks are created at run time, not seeded" },
   { module: "*", re: /^Loading run history/, why: "covered by the stuck-loading check" },
-  { module: "admin", level: "taluk", re: /No records match/, why: "one District Information Office per district, filed under its headquarters taluk" },
-  { module: "empanel", level: "taluk", re: /No records match/, why: "vendors are empanelled per district (or statewide), not per taluk" },
-  { module: "bills", level: "taluk", re: /No records match/, why: "bills follow the release orders that have been billed; not every taluk has a billed order" },
-  {
-    module: "*", role: "VENDOR", re: /No records match|No release orders with this status/,
-    why: "the demo vendor (PR-K02) is a statewide outlet: its own bills and empanelment are statewide rows, so a division, district or taluk honestly has none",
-  },
 ];
 // Modules a role may not drill (the check is skipped, with the reason).
 const NO_DRILL_OK = [
-  { role: "VENDOR", module: "*", why: "the demo vendor's rows are all statewide, so there is no place below Karnataka to drill to" },
+  // { role: "VENDOR", module: "*", why: "..." }
 ];
 // "No data" phrases the views print outside an `.empty` block (they also fail unless whitelisted above).
 const EMPTY_PHRASES = [
@@ -128,7 +121,11 @@ async function settle(page, st, problems) {
   }
 }
 
-/** Marks the first control in the view that drills to `name` (a division, district or taluk) for each control type. */
+/**
+ * Marks the first enabled control in the view that drills to `name` (a division, district or taluk) for each control
+ * type. Returns the enabled types, and `zero`: true when the only controls for the place are disabled area bars
+ * (BarList disables a bar whose area has no rows, so a zero area is not drillable).
+ */
 async function controlsFor(page, name, lvl) {
   return page.evaluate(
     ({ name, lvl }) => {
@@ -137,8 +134,10 @@ async function controlsFor(page, name, lvl) {
       const want = lvl === "div" ? name + " Division" : name;
       const t = (s) => (s || "").trim();
       const found = {};
+      let zero = false;
       const add = (type, el, ok) => {
         if (!ok || found[type]) return;
+        if (el.disabled) return void (zero = true);
         found[type] = true;
         (el.querySelector("polygon,circle") || el).setAttribute("data-e2e", type);
       };
@@ -148,7 +147,8 @@ async function controlsFor(page, name, lvl) {
       v.querySelectorAll("tr.click").forEach((r) => add("children row", r, t(r.querySelector(".nm")?.textContent) === want));
       v.querySelectorAll(".tiles button.tile").forEach((b) => add("taluk tile", b, t(b.querySelector("b")?.textContent) === want));
       v.querySelectorAll(".hb button.rbtn").forEach((b) => add("area bar", b, t(b.querySelector("span[title]")?.getAttribute("title")) === want));
-      return Object.keys(found);
+      const types = Object.keys(found);
+      return { types, zero: zero && !types.length };
     },
     { name, lvl },
   );
@@ -250,7 +250,12 @@ async function runRole(browser, role, log) {
     /** Drills from the current place (path p minus its last part) to p with the module's own controls. */
     const drill = async (p, needControl) => {
       const lvl = ["div", "dist", "tlk"][p.length - 1];
-      const types = await controlsFor(page, p[p.length - 1], lvl);
+      const { types, zero } = await controlsFor(page, p[p.length - 1], lvl);
+      if (zero) {
+        // a zero area: its bar is disabled, so there is nothing to drill to (and no empty level to open)
+        results.push({ role, module: mod.key, level: ["state", "division", "district", "taluk"][p.length], place: labelsFor(p).join(" › "), via: "zero", ok: true, reasons: [], skipped: true });
+        return null;
+      }
       if (!types.length) {
         await viaLink(p);
         const r = await check(p, "address");
@@ -268,35 +273,80 @@ async function runRole(browser, role, log) {
       try {
         await el.click({ timeout: 3000 });
       } catch (e) {
-        // covered by another element (e.g. overlapping chart points): note it, then use the keyboard as a user could
+        // covered by another element (e.g. overlapping chart points): note it, then use the keyboard as a user could,
+        // but only when the control itself took the focus (Enter must not land on whatever had it before)
         const by = (e.message.match(/aria-label="([^":]+)/) || [])[1];
         blocked = `the ${ty} for ${p[p.length - 1]} cannot be clicked${by ? ", it is covered by " + by : ""}`;
-        await el.evaluate((x) => (x.closest("[tabindex]") || x).focus());
-        await page.keyboard.press("Enter");
+        const focused = await el.evaluate((x) => {
+          const f = x.closest("[tabindex],button") || x;
+          f.focus();
+          return document.activeElement === f;
+        });
+        if (focused) await page.keyboard.press("Enter");
+        else await viaLink(p);
       }
       const r = await check(p, ty);
       if (blocked) (r.ok = false), r.reasons.unshift(blocked);
       return r;
     };
+    // Breadcrumb and drill-up start from where the previous step should have left the view. If that step failed, the
+    // control may be missing or disabled: recover through the address and record why, instead of timing out.
     const crumb = async (p) => {
-      await page.locator(".crumbs button").nth(labelsFor(p).length - 1).click();
+      const b = page.locator(".crumbs button").nth(labelsFor(p).length - 1);
+      if (!(await b.count())) {
+        await viaLink(p);
+        const r = await check(p, "address");
+        return (r.ok = false), r.reasons.unshift("breadcrumb to go back up was missing (the previous drill did not happen)"), r;
+      }
+      await b.click({ timeout: 5000 });
       return check(p, "breadcrumb");
     };
     const up = async (p) => {
-      await page.locator("button.up").click();
+      const b = page.locator("button.up");
+      if (await b.isDisabled()) {
+        await viaLink(p);
+        const r = await check(p, "address");
+        return (r.ok = false), r.reasons.unshift("drill-up button was disabled (the previous drill did not happen)"), r;
+      }
+      await b.click({ timeout: 5000 });
       return check(p, "drill-up");
+    };
+
+    /** Every taluk of district path dp (up to TLK_MAX), back up by drill-up and breadcrumb in turn. */
+    const taluks = async (dp, parent) => {
+      const tl = ref.taluks[dp[1]].slice(0, TLK_MAX);
+      const zero = [];
+      let k = 0;
+      for (const t of tl) {
+        const r = await drill([...dp, t], true);
+        if (!r) {
+          zero.push(t);
+          continue;
+        }
+        await (k++ % 2 ? crumb(dp) : up(dp));
+      }
+      allZero(dp, parent, zero, tl);
+    };
+    /** All children disabled (zero rows) is a failure only when the parent level itself shows data. */
+    const allZero = (p, parent, zero, kids) => {
+      if (!kids.length || zero.length < kids.length) return;
+      const parentEmpty = parent && parent.reasons.some((x) => /^empty (state|text)/.test(x));
+      if (!parentEmpty) record(p, "drill check", [`every ${["division", "district", "taluk"][p.length]} bar is disabled (zero rows) although ${labelsFor(p).slice(-1)[0] || "Karnataka"} shows data`]);
     };
 
     try {
       await page.locator("nav.snav button").nth(mi).click();
       // start at the top of the role's area
       if ((await inspect(page)).crumbs.length > labelsFor(top).length) await page.locator(".crumbs button").first().click();
-      await check(top, "module menu");
+      const topCheck = await check(top, "module menu");
 
       // A module drills when its view offers a control for a child of the top level.
       const kidsOf = (p) => (p.length === 0 ? Object.keys(ref.divisions) : p.length === 1 ? ref.divisions[p[0]] : p.length === 2 ? ref.taluks[p[1]] : []);
       let drills = false;
-      for (const k of kidsOf(top)) if ((await controlsFor(page, k, ["div", "dist", "tlk"][top.length])).length) drills = true;
+      for (const k of kidsOf(top)) {
+        const c = await controlsFor(page, k, ["div", "dist", "tlk"][top.length]);
+        if (c.types.length || c.zero) drills = true;
+      }
 
       if (!drills && GEO.has(mod.key) && !noDrillOk) {
         const kids = ["divisions", "districts", "taluks"][top.length];
@@ -313,30 +363,40 @@ async function runRole(browser, role, log) {
         }
         await (sc ? crumb(top) : crumb([]));
       } else if (sc) {
-        const tl = ref.taluks[sc].slice(0, TLK_MAX);
-        for (let k = 0; k < tl.length; k++) {
-          await drill([...top, tl[k]], true);
-          await (k % 2 ? crumb(top) : up(top));
-        }
+        await taluks(top, topCheck);
       } else {
         const divs = Object.keys(ref.divisions);
+        let stateCheck = topCheck;
+        const zDiv = [];
         for (let vi = 0; vi < divs.length; vi++) {
           const dv = divs[vi];
-          await drill([dv], true);
-          const ds = ref.divisions[dv].slice(0, DIST_PER_DIV);
-          for (let di = 0; di < ds.length; di++) {
-            const ok = (await drill([dv, ds[di]], true)).via !== "address";
-            if (di === 0 && ok) {
-              const tl = ref.taluks[ds[di]].slice(0, TLK_MAX);
-              for (let k = 0; k < tl.length; k++) {
-                await drill([dv, ds[di], tl[k]], true);
-                await (k % 2 ? crumb([dv, ds[di]]) : up([dv, ds[di]]));
-              }
-            }
-            await (di % 2 ? up([dv]) : crumb([dv]));
+          const rd = await drill([dv], true);
+          if (!rd) {
+            zDiv.push(dv);
+            continue;
           }
+          // districts: the first DIST_PER_DIV that have rows (a zero district's bar is disabled, so it is skipped)
+          const zDist = [];
+          let done = 0,
+            talukDone = false;
+          for (const d of ref.divisions[dv]) {
+            if (done >= DIST_PER_DIV) break;
+            const r = await drill([dv, d], true);
+            if (!r) {
+              zDist.push(d);
+              continue;
+            }
+            done++;
+            if (!talukDone && r.via !== "address") {
+              talukDone = true;
+              await taluks([dv, d], r);
+            }
+            await (done % 2 ? crumb([dv]) : up([dv]));
+          }
+          allZero([dv], rd, zDist, ref.divisions[dv]);
           await (vi % 2 ? up([]) : crumb([]));
         }
+        allZero([], stateCheck, zDiv, divs);
       }
       const cov = Object.entries(used).map(([k, n]) => `${k} ×${n}`).join(", ");
       const mine = results.filter((r) => r.module === mod.key);
@@ -401,7 +461,8 @@ await Promise.all(
 await browser.close();
 
 // summary: role × module × level
-const checks = all.filter((r) => r.via !== "coverage");
+const checks = all.filter((r) => r.via !== "coverage" && !r.skipped);
+const skipped = all.filter((r) => r.skipped);
 const key = (r) => `${r.role}|${r.module}|${r.level}`;
 const groups = new Map();
 for (const r of checks) {
@@ -419,6 +480,7 @@ for (const g of rows) {
   console.log(pad(g.role, 14) + pad(g.module, 14) + pad(g.level, 10) + pad(res, 12) + why);
 }
 const failed = checks.filter((r) => !r.ok).length;
+if (skipped.length) console.log(`\n${skipped.length} zero-row places skipped (their area bar is disabled, so they cannot be drilled to).`);
 console.log(`\n${checks.length - failed}/${checks.length} checks passed in ${((Date.now() - t0) / 1000).toFixed(0)} s (${MODE} mode). Report: ${REPORT}`);
 fs.writeFileSync(
   REPORT,
@@ -428,6 +490,7 @@ fs.writeFileSync(
       mode: MODE,
       when: new Date().toISOString(),
       passed: checks.length - failed,
+      skippedZeroRows: skipped.map((r) => `${r.role} ${r.module} ${r.place}`),
       failed,
       allowedEmpty: ALLOWED_EMPTY.map((a) => ({ module: a.module, role: a.role || "*", level: a.level || "*", text: a.re.source, why: a.why })),
       noDrillAllowed: NO_DRILL_OK,
