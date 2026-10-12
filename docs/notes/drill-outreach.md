@@ -11,8 +11,8 @@ Every place-showing element, as the Commissioner (State → Kalaburagi Division 
 | Hex map tile | State/division → district (as the prototype, one click to the district) | metric engine |
 | Division chips / "All divisions" | State ↔ division | metric engine |
 | Taluk tiles (Overview at district) | district → taluk | metric engine |
-| Child tables (Overview, Tipline "Claims by …", Press "Press performance by …", Offices scorecard) | one level down, down to taluk | metric engine |
-| Scatter dots (Ads) | one level down; at taluk the single dot is the taluk itself (prototype) | metric engine |
+| Child tables (Overview, Tipline "Claims by …", Press "Press performance by …", Offices scorecard) | one level down, down to taluk. Offices also lists the taluks at district level ("Taluks of …", without the HQ tasks column) so the view can drill to them; the prototype stopped its scorecard at division | metric engine |
+| Scatter dots (Ads) | one level down; at taluk the single dot is the taluk itself (prototype). Dots closer than 18 px are nudged apart and labels take no clicks, so every dot is clickable (true values stay in the tooltip) | metric engine |
 | Spend by medium, KPIs, funnel, trend, narratives, accreditation pipeline | — | metric engine (taluk leaf → aggregated) |
 | Tipline claim queue, "Open in queue" KPI | — | **now by taluk** |
 | Press releases in scope | — | statewide always; district rows **now by taluk** |
@@ -38,7 +38,7 @@ Every place-showing element, as the Commissioner (State → Kalaburagi Division 
 - No server-side taluk filter: all four endpoints already return the user's scope; filtering is client-side as in the prototype.
 - New claims, releases and feed updates logged from the console are not tagged with a taluk (the form has no taluk field);
   they show at every taluk of their district. Adding a taluk field to those forms is left for later.
-- Scatter dots can overlap at division level (as in the prototype); each dot is also keyboard-focusable and drills on Enter.
+- Scatter dots that would overlap (Mysuru/Mandya, Raichur/Koppal, Gokak/Belagavi, Sedam/Chincholi, Yelahanka/Bengaluru North) are drawn nudged apart; each dot is also keyboard-focusable and drills on Enter.
 
 ## Verified
 `node tools/e2e-drill-outreach.mjs http://localhost:3292` passes with a local test seed that tagged a few Raichur rows with taluks

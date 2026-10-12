@@ -53,6 +53,9 @@ async function checkModule(page, role, t, nd) {
   if (t === "tipline") rows = await page.$$eval("#view .card.s8 table.tb tbody tr td:nth-child(2)", (tds) => tds.map((x) => x.textContent.trim()));
   if (t === "press") rows = await page.$$eval("#view .card.s8 table.tb tbody tr td:nth-child(2)", (tds) => tds.map((x) => x.textContent.trim()));
   if (t === "offices") rows = await page.$$eval("#view ul.feed li small", (s) => s.map((x) => x.textContent.split(" · ").slice(0, 2).join(" · ")));
+  // feed lines read "District · Taluk · Scheme"; only a known taluk name counts as the row's taluk
+  const TALUKS = ["Raichur", "Sindhanur", "Manvi", "Lingasugur", "Devadurga"];
+  rows = rows.map((r) => (r.includes(" · ") && !TALUKS.includes(r.split(" · ")[1]) ? r.split(" · ")[0] : r));
   const bad = rows.filter((r) => {
     if (r === "Statewide") return t !== "press";
     if (nd.div && !nd.dist) return !nd.dists.some((d) => r === d || r.startsWith(d + " · "));
@@ -121,10 +124,10 @@ const MODS = ["overview", "tipline", "press", "ads", "offices", "ai"];
   await settle(page);
   await expectCrumbs(page, "Karnataka › Mysuru Division", "press kid row");
   await tab(page, "ads");
-  await page.locator("#view svg.chart g.hx").first().dispatchEvent("click"); // dots can overlap; a click event is enough
+  await page.locator("#view svg.chart g.hx").first().click();
   await settle(page);
   if ((await crumbs(page)).split(" › ").length !== 3) problems.push("ads scatter dot did not drill to a district");
-  await page.locator("#view svg.chart g.hx").first().dispatchEvent("click"); // dots can overlap; a click event is enough
+  await page.locator("#view svg.chart g.hx").first().click();
   await settle(page);
   if ((await crumbs(page)).split(" › ").length !== 4) problems.push("ads scatter dot did not drill to a taluk");
   await page.locator(".crumbs button", { hasText: "Karnataka" }).click();
@@ -133,6 +136,34 @@ const MODS = ["overview", "tipline", "press", "ads", "offices", "ai"];
   await page.locator("#view .card.s12 table.tb tbody tr").first().click();
   await settle(page);
   if ((await crumbs(page)).split(" › ").length !== 2) problems.push("offices scorecard row did not drill to a division");
+  // every scatter dot takes a real click (dots are nudged apart): Kalaburagi Division and Raichur district
+  for (const [path, want] of [[["Karnataka", "Kalaburagi Division"], 3], [["Karnataka", "Mysuru Division"], 3], [["Karnataka", "Kalaburagi Division", "Raichur"], 4], [["Karnataka", "Belagavi Division", "Belagavi"], 4], [["Karnataka", "Kalaburagi Division", "Kalaburagi"], 4], [["Karnataka", "Bengaluru Division", "Bengaluru Urban"], 4]]) {
+    await page.locator(".crumbs button", { hasText: "Karnataka" }).click();
+    await tab(page, "overview");
+    if (path.length > 1) await page.locator(".divchips button", { hasText: path[1] }).click();
+    if (path.length > 2) await page.locator(`svg.hexmap g.hx[aria-label^="${path[2]},"]`).click();
+    await tab(page, "ads");
+    const names = await page.$$eval("#view svg.chart g.hx", (gs) => gs.map((g) => g.getAttribute("aria-label").split(":")[0]));
+    for (const nm of names) {
+      await page.locator(`#view svg.chart g.hx[aria-label^="${nm}:"]`).click({ timeout: 5000 }).catch(() => problems.push(`ads dot ${nm} not clickable`));
+      await settle(page);
+      const c = await crumbs(page);
+      if (c.split(" › ").length !== want || !c.endsWith(nm)) problems.push(`ads dot ${nm}: crumbs ${c}`);
+      await page.click("button.up");
+      await settle(page);
+    }
+  }
+  // offices: district → taluk through the taluk table
+  await page.locator(".crumbs button", { hasText: "Karnataka" }).click();
+  await tab(page, "overview");
+  await page.locator('svg.hexmap g.hx[aria-label^="Raichur,"]').click();
+  await settle(page);
+  await tab(page, "offices");
+  await page.locator("#view .card.s12 table.tb tbody tr", { hasText: "Sindhanur" }).click();
+  await settle(page);
+  await expectCrumbs(page, "Karnataka › Kalaburagi Division › Raichur › Sindhanur", "offices taluk row");
+  await page.click("button.up");
+  await settle(page);
   // glance tile opens its module at the current node
   await tab(page, "overview");
   const before = await crumbs(page);
@@ -177,6 +208,12 @@ const MODS = ["overview", "tipline", "press", "ads", "offices", "ai"];
     await expectCrumbs(page, "Raichur", `dio up from ${tk}`);
     if (!(await page.locator("button.up").isDisabled())) problems.push("dio: drill up should be disabled at the district");
   }
+  await tab(page, "offices");
+  await page.locator("#view .card.s12 table.tb tbody tr", { hasText: "Manvi" }).click();
+  await settle(page);
+  await expectCrumbs(page, "Raichur › Manvi", "dio offices taluk row");
+  await page.click("button.up");
+  await settle(page);
   // KidTable row (taluks) drills too
   await tab(page, "tipline");
   await page.locator("#view .card.s12 table.tb tbody tr").first().click();

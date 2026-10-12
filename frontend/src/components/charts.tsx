@@ -214,6 +214,31 @@ export function Scatter({ pts }: { pts: ScatterPt[] }) {
     y = (v: number) => T + (H - T - B) * (1 - (v - ylo) / (yhi - ylo));
   const ax = pts.reduce((a, p) => a + p.x, 0) / pts.length,
     ay = pts.reduce((a, p) => a + p.y, 0) / pts.length;
+  // Screen positions, nudged apart so every dot keeps its own clickable target (true values stay in the tooltip).
+  const pos = pts.map((p) => [x(p.x), y(p.y)]),
+    GAP = 18;
+  for (let it = 0; it < 40; it++) {
+    let moved = false;
+    for (let i = 0; i < pos.length; i++)
+      for (let j = i + 1; j < pos.length; j++) {
+        let dx = pos[j][0] - pos[i][0],
+          dy = pos[j][1] - pos[i][1];
+        const d = Math.hypot(dx, dy);
+        if (d >= GAP) continue;
+        if (d < 0.01) [dx, dy] = [0, 1];
+        const k = (GAP - d) / 2 / (d || 1);
+        pos[i][0] -= dx * k;
+        pos[i][1] -= dy * k;
+        pos[j][0] += dx * k;
+        pos[j][1] += dy * k;
+        moved = true;
+      }
+    for (const q of pos) {
+      q[0] = cl(q[0], L + 6, W - R - 6);
+      q[1] = cl(q[1], T + 6, H - B - 6);
+    }
+    if (!moved) break;
+  }
   return (
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="group" aria-label="Spend versus uptake">
       <g className="grid">
@@ -245,7 +270,14 @@ export function Scatter({ pts }: { pts: ScatterPt[] }) {
       </g>
       <line x1={x(ax)} x2={x(ax)} y1={T} y2={H - B} stroke="var(--muted)" strokeDasharray="3 3" />
       <line x1={L} x2={W - R} y1={y(ay)} y2={y(ay)} stroke="var(--muted)" strokeDasharray="3 3" />
-      {pts.map((p) => {
+      <g aria-hidden="true" style={{ pointerEvents: "none" }}>
+        {pts.map((p, i) => (
+          <text key={p.key} x={pos[i][0] + 9} y={pos[i][1] + 3.5} style={{ fill: "var(--ink)" }}>
+            {p.short}
+          </text>
+        ))}
+      </g>
+      {pts.map((p, i) => {
         const lo = p.x > ax && p.y < ay;
         return (
           <g
@@ -263,10 +295,8 @@ export function Scatter({ pts }: { pts: ScatterPt[] }) {
             }}
           >
             <title>{`${p.label}: ₹${p.x.toFixed(0)} per 1,000, uptake ${p.y.toFixed(0)}`}</title>
-            <circle cx={x(p.x)} cy={y(p.y)} r="6" fill={lo ? "var(--crit)" : "var(--indigo)"} opacity=".85" />
-            <text x={x(p.x) + 9} y={y(p.y) + 3.5} style={{ fill: "var(--ink)" }}>
-              {p.short}
-            </text>
+            <circle cx={pos[i][0]} cy={pos[i][1]} r="9" fill="transparent" />
+            <circle cx={pos[i][0]} cy={pos[i][1]} r="6" fill={lo ? "var(--crit)" : "var(--indigo)"} opacity=".85" />
           </g>
         );
       })}
