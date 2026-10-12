@@ -2,10 +2,10 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { LiveRun, runAgent } from "@/lib/agents";
-import { fmt, lakh, pct } from "@/lib/format";
+import { ago, fmt, lakh, pct } from "@/lib/format";
 import { label, Node } from "@/lib/geo";
 import { AppState, useApi, useApp } from "@/lib/store";
-import type { AgentInfo, AgentRun, SpendRow } from "@/lib/types";
+import type { AgentCard, AgentRunFull, SpendRow } from "@/lib/types";
 
 const SUGS = ["Which districts have the lowest read rate?", "Where are most tipline claims coming from?", "Compare Raichur and Mysuru", "Where is ad spend highest per person?", "Lowest press pickup"];
 
@@ -93,39 +93,64 @@ function answer(app: AppState, q: string, spend: SpendRow[] | undefined): React.
   return <p>I can answer questions about read rates, tipline claims, ad spend, press pickup and scheme uptake, or compare two districts. Try one of the suggestions below.</p>;
 }
 
+const STEP_MS = 520;
+const reduceMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const statusTone = (s: string) => (s === "Approved" ? "good" : s === "Needs approval" ? "warn" : s === "Sent back" ? "crit" : "");
+const when = (iso: string | null | undefined) => (!iso ? "" : Date.now() - Date.parse(iso) < 60_000 ? "just now" : ago(iso) + " ago");
+
 export function AIView() {
   const app = useApp();
-  const { node: n, agent, setAgent, toast, invalidate, canSee } = app;
-  const agents = useApi<AgentInfo[]>("/agents").data ?? [];
+  const { node: n, agent, setAgent, toast, invalidate, canSee, user } = app;
+  const cards = useApi<AgentCard[]>("/agents").data ?? [];
   const spend = useApi<SpendRow[]>(canSee("spend") ? "/spend/orders" : null).data;
+  const run = agent as (LiveRun & Partial<AgentRunFull>) | null;
+  const histKey = run ? `${run.id}-${run.status}` : "0";
+  const history = useApi<AgentRunFull[]>(`/agents/runs?k=${histKey}`).data;
+  const inbox = useApi<AgentRunFull[]>(user.role === "COMMISSIONER" ? `/agents/inbox?k=${histKey}` : null).data;
   const [askQ, setAskQ] = useState("");
   const [askA, setAskA] = useState<React.ReactNode>(null);
+  const [comment, setComment] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [, tick] = useState(0);
-  const run = agent as LiveRun | null;
-  const shown = run ? Math.min(run.steps.length, Math.floor((Date.now() - run.localStart - 200) / 520) + 1) : 0;
-  const done = !!run && shown >= run.steps.length && Date.now() - run.localStart > 200 + run.steps.length * 520;
+  const step = reduceMotion() ? 60 : STEP_MS;
+  const shown = run ? Math.min(run.steps.length, Math.floor((Date.now() - run.localStart - 200) / step) + 1) : 0;
+  const done = !!run && shown >= run.steps.length && Date.now() - run.localStart > 200 + run.steps.length * step;
   useEffect(() => {
     if (!run || done) return;
-    const t = setInterval(() => tick((x) => x + 1), 260);
+    const t = setInterval(() => tick((x) => x + 1), step / 2);
     return () => clearInterval(t);
-  }, [run, done]);
+  }, [run, done, step]);
+  useEffect(() => setComment(null), [run?.id]);
 
+  const card = run ? cards.find((c) => c.id === run.agentId) : undefined;
   const ask = (q: string) => {
     setAskQ(q);
     if (q.trim()) setAskA(answer(app, q, spend));
   };
+  const open = (r: AgentRunFull) => {
+    setAgent({ ...r, localStart: 0 } as LiveRun);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
   const decide = async (approve: boolean) => {
-    if (!run) return;
+    if (!run || busy) return;
+    if (!approve && !(comment ?? "").trim()) {
+      toast("Add a comment", "Write what the agent should change before sending it back.");
+      return;
+    }
+    setBusy(true);
     try {
-      const r = await api.post<AgentRun>(`/agents/runs/${run.id}/${approve ? "approve" : "reject"}`, approve ? {} : { comment: "Sent back from the console" });
+      const r = await api.post<AgentRunFull>(`/agents/runs/${run.id}/${approve ? "approve" : "reject"}`, approve ? {} : { comment: comment!.trim() });
       if (r.toast) toast(r.toast.title, r.toast.body);
       invalidate();
-      setAgent(approve ? ({ ...r, localStart: run.localStart } as LiveRun) : null);
+      setAgent(approve ? ({ ...r, localStart: 0 } as LiveRun) : null);
     } catch (e) {
       toast("Could not record the decision", (e as Error).message);
+    } finally {
+      setBusy(false);
     }
   };
   const lines = run ? run.steps.slice(0, Math.max(0, shown)) : [];
+  const decidedNote = (r: Partial<AgentRunFull>) => when(r.decidedAt) || "just now";
 
   return (
     <div className="grid">
@@ -166,19 +191,32 @@ export function AIView() {
           </div>
         </div>
         <div className="agents">
-          {agents.map((d) => {
+          {cards.map((d) => {
             const on = run?.agentId === d.id;
             return (
-              <div key={d.id} className={`agent ${on ? "on" : ""}`}>
+              <div key={d.id} className={`agent ${on ? "on" : ""} ${d.canRun ? "" : "off"}`}>
                 <h4>{d.name}</h4>
                 <p>{d.does}</p>
                 <div className="g">
                   <span className="chip good">Guardrail</span>
                   <span>{d.guard}</span>
                 </div>
+                {!d.canRun && <small className="agnote">{d.note}</small>}
                 <div className="foot">
-                  <small>{on ? (done ? (run!.status === "Approved" ? "Approved" : "Waiting for approval") : "Running…") : "Ready"}</small>
-                  <button className={`btn ${on ? "" : "pri"}`} onClick={() => runAgent(app, d.id)}>
+                  <small>
+                    {on
+                      ? done
+                        ? run!.status === "Approved"
+                          ? "Approved"
+                          : run!.status === "Needs approval"
+                            ? "Waiting for approval"
+                            : run!.status
+                        : "Running…"
+                      : d.canRun
+                        ? "Ready"
+                        : "Not in your access"}
+                  </small>
+                  <button className={`btn ${on ? "" : "pri"}`} disabled={!d.canRun} onClick={() => runAgent(app, d.id)}>
                     {on ? "Run again" : "Run"}
                   </button>
                 </div>
@@ -194,9 +232,11 @@ export function AIView() {
               <h3>{run.name}</h3>
               <p>{done ? "Finished. Review before anything goes out." : "Working…"}</p>
             </div>
-            <span className={`chip ${done ? "warn" : "ind"}`}>{done ? (run.status === "Approved" ? "Approved" : "Needs approval") : "Running"}</span>
+            <span className={`chip ${done ? (run.status === "Approved" ? "good" : "warn") : "ind"}`}>
+              {done ? (run.status === "Needs approval" ? "Needs approval" : run.status) : "Running"}
+            </span>
           </div>
-          <pre className="runlog">
+          <pre className="runlog" aria-live="polite">
             {lines.map((l, i) => {
               const last = i === lines.length - 1 && !done;
               return (
@@ -211,17 +251,46 @@ export function AIView() {
             <div className="out">
               {/* Agent output is HTML generated by the server with every inserted value escaped. */}
               <div dangerouslySetInnerHTML={{ __html: run.output }} />
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
                 {run.status === "Approved" ? (
-                  <span className="chip good">Approved by {run.decidedBy} · just now</span>
+                  <>
+                    <span className="chip good">
+                      Approved by {run.decidedBy} · {decidedNote(run)}
+                    </span>
+                    {run.effect && <small className="ageff">{run.effect}</small>}
+                  </>
+                ) : run.status === "Needs approval" ? (
+                  comment === null ? (
+                    <>
+                      <button className="btn pri" disabled={busy || card?.canApprove === false} onClick={() => decide(true)}>
+                        {run.approveLabel}
+                      </button>
+                      <button className="btn" disabled={busy} onClick={() => setComment("")}>
+                        Send back with comments
+                      </button>
+                      {card && !card.canApprove && card.canRun && <small className="ageff">{card.note}</small>}
+                    </>
+                  ) : (
+                    <div className="agback">
+                      <label htmlFor="ag-comment">What should the agent change?</label>
+                      <textarea id="ag-comment" rows={3} maxLength={1000} value={comment} autoFocus onChange={(e) => setComment(e.target.value)} />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn pri" disabled={busy || !comment.trim()} onClick={() => decide(false)}>
+                          Send back
+                        </button>
+                        <button className="btn" onClick={() => setComment(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )
                 ) : (
                   <>
-                    <button className="btn pri" onClick={() => decide(true)}>
-                      {run.approveLabel}
-                    </button>
-                    <button className="btn" onClick={() => decide(false)}>
-                      Send back with comments
-                    </button>
+                    <span className={`chip ${statusTone(run.status)}`}>
+                      {run.status}
+                      {run.decidedBy ? ` by ${run.decidedBy}` : ""}
+                    </span>
+                    {run.comment && <small className="ageff">“{run.comment}”</small>}
                   </>
                 )}
               </div>
@@ -229,6 +298,95 @@ export function AIView() {
           )}
         </div>
       )}
+      {inbox && inbox.length > 0 && (
+        <div className="card s12">
+          <div className="ch">
+            <div>
+              <h3>Reports sent to you</h3>
+              <p>Approved agent output addressed to the Commissioner. Select one to read it.</p>
+            </div>
+            <span className="chip ind">{inbox.length}</span>
+          </div>
+          <RunTable rows={inbox} onOpen={open} sel={run?.id} />
+        </div>
+      )}
+      <div className="card s12">
+        <div className="ch">
+          <div>
+            <h3>Run history</h3>
+            <p>Last 20 runs of the agents you can use, with who decided and what changed. Select a run to see its output.</p>
+          </div>
+        </div>
+        {history === undefined ? (
+          <div className="empty">Loading run history…</div>
+        ) : history.length ? (
+          <RunTable rows={history} onOpen={open} sel={run?.id} />
+        ) : (
+          <div className="empty">No agent runs yet. Run an agent above; every run is kept here with its approver.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RunTable({ rows, onOpen, sel }: { rows: AgentRunFull[]; onOpen: (r: AgentRunFull) => void; sel?: number }) {
+  return (
+    <div className="tbw">
+      <table className="tb">
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Area</th>
+            <th>Started</th>
+            <th>Status</th>
+            <th>Outcome</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.id}
+              className={`click ${sel === r.id ? "on" : ""}`}
+              tabIndex={0}
+              onClick={() => onOpen(r)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onOpen(r);
+                }
+              }}
+            >
+              <td>
+                <span className="nm">{r.name}</span>
+                {r.target && <div><small style={{ color: "var(--muted)" }}>Target: {r.target}</small></div>}
+              </td>
+              <td>{r.area || "—"}</td>
+              <td>
+                {r.startedBy}
+                <div><small style={{ color: "var(--muted)" }}>{when(r.startedAt)}</small></div>
+              </td>
+              <td>
+                <span className={`chip ${statusTone(r.status)}`}>{r.status}</span>
+                {r.decidedBy && r.status !== "Superseded" && <div><small style={{ color: "var(--muted)" }}>{r.decidedBy} · {when(r.decidedAt)}</small></div>}
+              </td>
+              <td style={{ maxWidth: 360 }}>
+                {r.status === "Approved" ? (
+                  <>
+                    {r.effect || "Approved"}
+                    {r.sentTo && <div><small style={{ color: "var(--muted)" }}>Sent to {r.sentTo}</small></div>}
+                  </>
+                ) : r.status === "Sent back" ? (
+                  <>“{r.comment}”</>
+                ) : r.status === "Superseded" ? (
+                  "Run again before a decision"
+                ) : (
+                  "Waiting for approval"
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

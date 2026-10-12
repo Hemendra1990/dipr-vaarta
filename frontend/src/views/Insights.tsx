@@ -13,7 +13,7 @@ export function Insights({ n }: { n: Node }) {
   if (!o) return null;
   const kids = o.children(n),
     out: { tone: string; txt: React.ReactNode; acts: Act[] }[] = [];
-  const plan = (t: string) => () => runAgent(app, "planner", t);
+  const plan = (t: Node) => () => runAgent(app, "planner", t);
   if (kids.length) {
     const ms = kids.map((c) => ({ c, m: o.M(c, f) }));
     const low = [...ms].sort((a, b) => a.m.readR - b.m.readR)[0];
@@ -28,7 +28,7 @@ export function Insights({ n }: { n: Node }) {
         </>
       ),
       acts: [
-        ["Plan a recovery campaign", plan(low.c.name)],
+        ["Plan a recovery campaign", plan(low.c)],
         ["Drill in", () => drillTo({ lvl: low.c.lvl, name: low.c.name })],
       ],
     });
@@ -53,7 +53,7 @@ export function Insights({ n }: { n: Node }) {
           camps would test whether reach moves uptake.
         </>
       ),
-      acts: [["Ask the planner agent", plan(lowU.c.name)]],
+      acts: [["Ask the planner agent", plan(lowU.c)]],
     });
   } else {
     const m = o.M(n, f),
@@ -65,7 +65,7 @@ export function Insights({ n }: { n: Node }) {
           Read rate in <b>{n.name}</b> is {pct(m.readR)}, {m.readR < pm.readR ? "below" : "above"} the {n.dist} average of {pct(pm.readR)}.
         </>
       ),
-      acts: [["Plan a campaign", plan(n.name)]],
+      acts: [["Plan a campaign", plan(n)]],
     });
     out.push({
       tone: "warn",

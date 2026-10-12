@@ -16,10 +16,13 @@ public class AgentController {
     public AgentController(AgentService agents) { this.agents = agents; }
 
     @GetMapping
-    public List<AgentService.AgentInfo> list(@AuthenticationPrincipal CurrentUser u) {
-        u.require("ai");
-        return AgentService.AGENTS;
+    public List<AgentService.AgentAccess> list(@AuthenticationPrincipal CurrentUser u) {
+        return agents.cards(u);
     }
+
+    /** Approved agent reports addressed to the Commissioner. */
+    @GetMapping("/inbox")
+    public List<Map<String, Object>> inbox(@AuthenticationPrincipal CurrentUser u) { return agents.inbox(u); }
 
     @GetMapping("/runs")
     public List<Map<String, Object>> runs(@AuthenticationPrincipal CurrentUser u) { return agents.recent(u); }

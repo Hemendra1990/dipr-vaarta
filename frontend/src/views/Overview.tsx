@@ -194,8 +194,8 @@ export function Overview() {
           </div>
           <LineChart
             series={[
-              { vals: tr, col: "var(--indigo)" },
-              { vals: trS, col: "var(--arishina)" },
+              { vals: tr, col: "var(--indigo)", name: "Read" },
+              { vals: trS, col: "var(--arishina)", name: "Delivered" },
             ]}
             labels={lab}
           />
