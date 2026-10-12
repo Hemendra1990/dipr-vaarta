@@ -54,6 +54,11 @@ public class TiplineController {
         u.require("tipline");
         if (!ref.isDistrict(req.district())) throw new IllegalArgumentException("Unknown district " + req.district());
         if (!u.districtOk(req.district())) throw new CurrentUser.AccessDeniedException("This login covers " + u.district() + " district only.");
+        if (!BotService.CATEGORIES.contains(req.category())) throw new IllegalArgumentException("Unknown claim type " + req.category());
+        if (!languages().contains(req.lang())) throw new IllegalArgumentException("Unknown language " + req.lang());
+        if (req.text().trim().length() > 1000) throw new IllegalArgumentException("Keep the claim under 1,000 characters.");
+        if (req.forwards() != null && (req.forwards() < 0 || req.forwards() > 10_000_000)) throw new IllegalArgumentException("Forwards must be between 0 and 1,00,00,000.");
+        if (req.source() != null && req.source().length() > 60) throw new IllegalArgumentException("Source is too long.");
         Claim c = new Claim();
         c.id = BotService.nextClaimId(claims);
         c.text = req.text().trim(); c.lang = req.lang(); c.district = req.district(); c.category = req.category();
@@ -65,7 +70,7 @@ public class TiplineController {
         return claims.save(c);
     }
 
-    public record Transition(@NotBlank String to) {}
+    public record Transition(@NotBlank String to, String note) {}
 
     /** The claim workflow. Only the Commissioner and Joint Director (News) can approve and publish a verdict. */
     @PostMapping("/claims/{id}/transition")
@@ -76,7 +81,17 @@ public class TiplineController {
         if (!u.districtOk(c.district)) throw new CurrentUser.AccessDeniedException("This claim is outside your district.");
         Map<String, String> next = Map.of("New", "Triaged", "Triaged", "Draft ready", "Draft ready", "Published");
         String to = t.to();
-        if (to.equals("Escalated")) {
+        String note = t.note() == null ? "" : t.note().trim();
+        if (note.length() > 500) throw new IllegalArgumentException("Keep the note under 500 characters.");
+        if (to.equals("Closed")) {
+            // Governance: claims not of public interest are closed without action; an escalated claim is closed once the
+            // district administration has dealt with it.
+            if (c.status.equals("Escalated")) c.verdict = "Handled by district administration";
+            else if (Set.of("New", "Triaged", "Draft ready").contains(c.status)) c.verdict = "Not of public interest";
+            else throw new IllegalArgumentException("A " + c.status + " claim cannot be closed.");
+            if (!note.isEmpty()) c.clarification = note;
+            c.approvedBy = u.displayName();
+        } else if (to.equals("Escalated")) {
             if (c.status.equals("Published") || c.status.equals("Escalated")) throw new IllegalArgumentException("This claim can no longer be escalated.");
             c.verdict = "Routed to district administration";
         } else {
@@ -91,7 +106,7 @@ public class TiplineController {
         }
         c.status = to;
         c.updatedAt = Instant.now();
-        audit.record(u, "claim." + to, c.id);
+        audit.record(u, "claim." + to, c.id + (note.isEmpty() ? "" : " · " + note));
         return c;
     }
 
@@ -160,6 +175,12 @@ public class TiplineController {
     }
 
     private static boolean canEdit(CurrentUser u, Claim c) {
-        return u.can("tipline") && u.districtOk(c.district) && !Set.of("Published", "Escalated").contains(c.status);
+        return u.can("tipline") && u.districtOk(c.district) && !Set.of("Published", "Escalated", "Closed").contains(c.status);
+    }
+
+    private List<String> languages() {
+        List<String> out = new ArrayList<>();
+        ref.reference().path("languages").forEach(n -> out.add(n.asText()));
+        return out;
     }
 }
