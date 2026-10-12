@@ -6,6 +6,7 @@ import gov.dipr.vaarta.domain.BudgetLine;
 import gov.dipr.vaarta.domain.SpendOrder;
 import gov.dipr.vaarta.domain.Vendor;
 import gov.dipr.vaarta.reference.ReferenceData;
+import gov.dipr.vaarta.repo.AdFlagRepo;
 import gov.dipr.vaarta.repo.BudgetLineRepo;
 import gov.dipr.vaarta.repo.SpendOrderRepo;
 import gov.dipr.vaarta.repo.VendorRepo;
@@ -46,11 +47,12 @@ public class SpendController {
     private final ReferenceData ref;
     private final Calendar cal;
     private final ObjectMapper om;
+    private final AdFlagRepo flags;
 
     public SpendController(SpendOrderRepo orders, BudgetLineRepo budget, VendorRepo vendors, RecordMapper mapper, AuditService audit,
-                           ReferenceData ref, Calendar cal, ObjectMapper om) {
+                           ReferenceData ref, Calendar cal, ObjectMapper om, AdFlagRepo flags) {
         this.orders = orders; this.budget = budget; this.vendors = vendors; this.mapper = mapper; this.audit = audit;
-        this.ref = ref; this.cal = cal; this.om = om;
+        this.ref = ref; this.cal = cal; this.om = om; this.flags = flags;
     }
 
     /**
@@ -157,6 +159,9 @@ public class SpendController {
         if (!BILLED.equals(o.status))
             throw new IllegalArgumentException(ISSUED.equals(o.status) ? o.roNo + " has not been billed yet."
                     : CANCELLED.equals(o.status) ? o.roNo + " is cancelled." : o.roNo + " is already paid.");
+        flags.findById(o.roNo).filter(f -> "Payment withheld".equals(f.reviewStatus)).ifPresent(f -> {
+            throw new IllegalArgumentException("Payment for " + o.roNo + " is withheld after the release-order audit: " + f.outcomeNote);
+        });
         String refNo = req(r.reference(), "Payment reference", 60);
         LocalDate d = date(r.paidOn(), "Payment date");
         if (o.billDate != null && d.isBefore(LocalDate.parse(o.billDate))) throw new IllegalArgumentException("Payment date cannot be before the bill date (" + o.billDate + ").");
