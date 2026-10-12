@@ -99,7 +99,9 @@ public class SampleDataLoader implements ApplicationRunner {
         List<Map<String, Object>> bd = read("budget.json", new TypeReference<>() {});
         budget.saveAll(bd.stream().map(mapper::toBudget).toList());
 
-        vendors.saveAll(read("vendors.json", new TypeReference<List<Vendor>>() {}));
+        List<Map<String, Object>> vs = read("vendors.json", new TypeReference<>() {});
+        vs.forEach(v -> v.remove("supplementary"));
+        vendors.saveAll(vs.stream().map(v -> om.convertValue(v, Vendor.class)).toList());
 
         Map<String, List<Map<String, Object>>> recs = read("records.json", new TypeReference<>() {});
         List<RegisterRecord> rr = new ArrayList<>();
@@ -123,6 +125,8 @@ public class SampleDataLoader implements ApplicationRunner {
             c.verdict = (String) m.get("verdict"); c.forwards = ((Number) m.get("fw")).intValue(); c.source = (String) m.get("src");
             c.receivedAt = now.minus(Math.round(((Number) m.get("ageHours")).doubleValue() * 60), ChronoUnit.MINUTES);
             c.updatedAt = c.receivedAt;
+            // supplementary claims are already settled (published or closed) by an approving officer
+            c.approvedBy = (String) m.get("approvedBy");
             claims.save(c);
         }
 
@@ -153,6 +157,12 @@ public class SampleDataLoader implements ApplicationRunner {
             a.ro = (String) m.get("ro"); a.publication = (String) m.get("pub"); a.issue = (String) m.get("issue");
             a.amount = ((Number) m.get("amt")).doubleValue(); a.district = (String) m.get("dist"); a.taluk = (String) m.get("taluk"); a.severity = (String) m.get("sev");
             a.reviewStatus = "Flagged";
+            if (m.get("review") != null) {
+                // supplementary flags were reviewed long ago: sent for review, then decided a day later
+                Instant sent = now.minus(((Number) m.get("ageHours")).longValue(), ChronoUnit.HOURS);
+                a.reviewStatus = (String) m.get("review"); a.sentBy = (String) m.get("sentBy"); a.sentAt = sent;
+                a.decidedBy = (String) m.get("decidedBy"); a.decidedAt = sent.plus(1, ChronoUnit.DAYS); a.outcomeNote = (String) m.get("outcomeNote");
+            }
             flags.save(a);
         }
         log.info("Loaded sample data: {} release orders, {} register records", orders.size(), rr.size());
