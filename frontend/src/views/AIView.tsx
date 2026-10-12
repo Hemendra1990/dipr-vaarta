@@ -15,7 +15,8 @@ function answer(app: AppState, q: string, spend: SpendRow[] | undefined): React.
     { outreach: o, node, filters: f, geo, meta } = app;
   if (/spend|budget|vendor|channel|campaign|money|cost/.test(t) && !/per person|per 1,000|per capita/.test(t)) {
     if (!spend) return <p>Spend data is not part of your login&apos;s access.</p>;
-    const rows = spend.filter((r) => r.status !== "RO issued" && r.fy === meta.calendar.curFy);
+    const rows = spend.filter((r) => r.status !== "RO issued" && r.fy === meta.calendar.curFy && geo.geoOk(r, node));
+    if (!rows.length) return <p>No spend booked in {label(node)} in {meta.calendar.curFy} yet.</p>;
     const by = (k: keyof SpendRow) => {
       const m: Record<string, number> = {};
       rows.forEach((r) => (m[r[k] as string] = (m[r[k] as string] || 0) + r.amount));
@@ -25,20 +26,20 @@ function answer(app: AppState, q: string, spend: SpendRow[] | undefined): React.
     if (/vendor/.test(t))
       return (
         <>
-          <p>Top vendors in {cur}:</p>
+          <p>Top vendors in {label(node)}, {cur}:</p>
           <ol>{by("vendorId").map(([k, v]) => <li key={k}>{k}: {lakh(v)}</li>)}</ol>
         </>
       );
     if (/channel/.test(t))
       return (
         <>
-          <p>Spend by channel in {cur}:</p>
+          <p>Spend by channel in {label(node)}, {cur}:</p>
           <ol>{by("channel").map(([k, v]) => <li key={k}>{k}: {lakh(v)}</li>)}</ol>
         </>
       );
     return (
       <>
-        <p>Biggest campaigns in {cur} so far:</p>
+        <p>Biggest campaigns in {label(node)}, {cur} so far:</p>
         <ol>{by("campaign").map(([k, v]) => <li key={k}>{k}: {lakh(v)}</li>)}</ol>
         <p>Open Spend analytics for trends and budget comparison.</p>
       </>
@@ -73,6 +74,17 @@ function answer(app: AppState, q: string, spend: SpendRow[] | undefined): React.
     return (
       <p>
         Opened <b>{found[0]}</b>. Read rate {pct(m.readR)}, {fmt(m.subs)} subscribers, {fmt(m.claims)} claims, uptake index {m.uptake.toFixed(0)}.
+      </p>
+    );
+  }
+  // A taluk of the district in view opens that taluk (the prototype only knew district names).
+  const tk = n.dist ? o.children(geo.distNode(n.dist)).find((k) => k.name !== n.dist && t.includes(k.name.toLowerCase())) : undefined;
+  if (tk) {
+    app.drillTo({ lvl: "tlk", name: tk.name });
+    const m = o.M(tk, f);
+    return (
+      <p>
+        Opened <b>{tk.name}</b> taluk, {tk.dist}. Read rate {pct(m.readR)}, {fmt(m.subs)} subscribers, {fmt(m.claims)} claims, uptake index {m.uptake.toFixed(0)}.
       </p>
     );
   }

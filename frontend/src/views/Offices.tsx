@@ -3,7 +3,7 @@ import { useState } from "react";
 import { KpiTile, Spark } from "@/components/charts";
 import { api } from "@/lib/api";
 import { ago, cl, fmt, pct, rateTone } from "@/lib/format";
-import { label } from "@/lib/geo";
+import { label, placeOf, talukOf } from "@/lib/geo";
 import { useApi, useApp } from "@/lib/store";
 import type { FeedItem, FeedResolvable, OfficeTask } from "@/lib/types";
 import { feedTitle, isFresh } from "@/lib/updates";
@@ -24,7 +24,7 @@ export function Offices() {
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="district offices" />;
   const m = o.M(n, f),
-    fd = data.filter((x) => geo.inNode(x.district, n) || n.lvl === "state");
+    fd = data.filter((x) => geo.inNode(x.district, n, talukOf(x)) || n.lvl === "state");
   const shown = fd.filter((x) => ft === "All" || (ft === "open" ? x.type === "esc" && !x.resolvedAt : x.type === ft));
   const openEsc = fd.filter((x) => x.type === "esc" && !x.resolvedAt).length;
   const resolve = async (e: React.FormEvent, x: FeedResolvable) => {
@@ -84,7 +84,7 @@ export function Offices() {
                 <div>
                   <p>{x.note}</p>
                   <small>
-                    {x.district}
+                    {placeOf(x.district, x)}
                     {x.scheme ? " · " + x.scheme : ""}
                     {x.channel === "WhatsApp" ? " · via WhatsApp" : x.channel === "Console" ? ` · posted by ${x.author}` : ""}
                     {x.sentiment && (

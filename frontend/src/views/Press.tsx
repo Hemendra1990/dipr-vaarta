@@ -3,7 +3,7 @@ import React, { useState } from "react";
 import { api } from "@/lib/api";
 import { HBars, InlineBar, KpiTile, Spark } from "@/components/charts";
 import { fmt, hash, nIN, pct } from "@/lib/format";
-import { CHILD_LVL, label, nodeKey } from "@/lib/geo";
+import { CHILD_LVL, label, nodeKey, placeOf, talukOf } from "@/lib/geo";
 import { useApi, useApp } from "@/lib/store";
 import type { PressRelease } from "@/lib/types";
 import { KidTable } from "./KidTable";
@@ -17,7 +17,7 @@ export function Press() {
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="press data" />;
   const m = o.M(n, f),
-    inArea = data.filter((r) => geo.inScope(r.district, n)),
+    inArea = data.filter((r) => geo.inScope(r.district, n, talukOf(r))),
     rl = inArea.filter((r) => r.status !== "Draft"),
     drafts = inArea.filter((r) => r.status === "Draft"),
     sel = data.find((r) => r.id === selId) || null,
@@ -86,7 +86,7 @@ export function Press() {
                           {r.id} · {r.dept} · {r.language} · drafted by {r.draftedBy}
                         </small>
                       </td>
-                      <td>{r.district === "State" ? <span className="chip ind">Statewide</span> : r.district}</td>
+                      <td>{r.district === "State" ? <span className="chip ind">Statewide</span> : placeOf(r.district, r)}</td>
                       <td className="r">
                         <span className="chip warn">Draft</span>
                       </td>
@@ -128,7 +128,7 @@ export function Press() {
                         {r.id} · {r.dept} · issued {r.hoursAfterEvent} h after event
                       </small>
                     </td>
-                    <td>{r.district === "State" ? <span className="chip ind">Statewide</span> : r.district}</td>
+                    <td>{r.district === "State" ? <span className="chip ind">Statewide</span> : placeOf(r.district, r)}</td>
                     <td className="r">
                       <InlineBar text={fmt(r.reach)} v={r.reach} max={maxR} col="var(--indigo)" />
                     </td>
@@ -310,7 +310,7 @@ function Detail({ r, onClose, onIssued }: { r: PressRelease; onClose: () => void
         <div>
           <span className={`chip ${draft ? "warn" : "good"}`}>{r.status}</span>{" "}
           <small className="mut">
-            {r.id} · {r.dept} · {r.district === "State" ? "Statewide" : r.district}
+            {r.id} · {r.dept} · {r.district === "State" ? "Statewide" : placeOf(r.district, r)}
             {r.language ? " · " + r.language : ""}
           </small>
           <h4>{r.title}</h4>
