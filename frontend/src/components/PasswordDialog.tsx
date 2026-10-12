@@ -9,15 +9,44 @@ export function passwordProblem(pw: string, min = 8): string | null {
   return null;
 }
 
-/** Small modal shell used by the admin screens. Closes on Escape or a click outside. */
+/**
+ * Small modal shell used by the admin screens. Closes on Escape or a click outside. Focus moves into the dialog once
+ * when it opens, Tab stays inside it, and focus returns to the button that opened it on close.
+ */
 export function Dialog({ title, sub, onClose, children }: { title: string; sub?: string; onClose: () => void; children: React.ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const opener = document.activeElement as HTMLElement | null;
+    const focusable = () =>
+      [...(box.current?.querySelectorAll<HTMLElement>("input,select,textarea,button,[href],[tabindex]:not([tabindex='-1'])") ?? [])].filter(
+        (el) => !(el as HTMLButtonElement).disabled && el.offsetParent !== null,
+      );
+    const k = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close.current();
+      else if (e.key === "Tab") {
+        const els = focusable();
+        if (!els.length) return;
+        const first = els[0], last = els[els.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
     window.addEventListener("keydown", k);
-    box.current?.querySelector<HTMLElement>("input,select,button")?.focus();
-    return () => window.removeEventListener("keydown", k);
-  }, [onClose]);
+    // first field, else the first button after the close button
+    const els = focusable();
+    (els.find((el) => el.matches("input,select,textarea")) ?? els[1] ?? els[0])?.focus();
+    return () => {
+      window.removeEventListener("keydown", k);
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  }, []);
   return (
     <div className="dlg-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="dlg" role="dialog" aria-modal="true" aria-label={title} ref={box}>
