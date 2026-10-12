@@ -109,7 +109,10 @@ an action now has a working, server-checked workflow. Detailed decisions per are
 - **Press office** (`docs/notes/press.md`): compose a draft, approve & issue, release detail, media-kit zip download
   (counted), record pickup. The Press Release Composer agent issues through the same numbering.
 - **Spend** (`docs/notes/spend.md`): issue a release order, vendor submits a bill, accounts marks it paid (with
-  history), "Release orders" card with status filter, budget edit. Charts keep using the order amount.
+  history), "Release orders" card with status filter, budget edit. Once an order is Billed or Paid every spend figure
+  uses the bill amount (seed rows have none, so the prototype numbers are unchanged). Commissioner and DD Accounts can
+  cancel an order while it is "RO issued" (reason required); cancelled orders drop out of every figure. Appending a
+  spend file skips RO numbers that already exist. A payment withheld by the release-order audit cannot be marked paid.
 - **Tipline, District offices and WhatsApp** (`docs/notes/tipline.md`): `POST /api/bot/inbound` (shared-key webhook)
   turns WhatsApp messages into claims (auto-answering ones that match a published verdict) and, from registered DIO
   numbers, into ground-feed items. The console polls `/api/updates` every 15 s and shows the prototype's toasts and
@@ -117,6 +120,27 @@ an action now has a working, server-checked workflow. Detailed decisions per are
 - **Administration** (`docs/notes/admin.md`): "Users & access" (create, edit role/scope, deactivate, reset password
   with a one-time temporary password, unlock, registered WhatsApp numbers) and "Audit log" for the Commissioner;
   password change for everyone; lockout after 5 wrong passwords.
+
+## 3b. Strict prototype pass (round 2)
+
+Every page, filter, button and drill level was compared with the prototype side by side for each role; findings and
+fixes per area are in `docs/notes/audit-*.md`. Behaviour added beyond display:
+
+- **Overview & AI agents** (`audit-command.md`): hover tooltip on the read-vs-delivered chart; planner actions pass the
+  exact area. Each agent needs the module its data comes from to run, and the Press Release Composer is approved only by
+  the Commissioner or JD (News). Every approval persists a real effect (triage in the approver's area, planner adds a
+  campaign at "Creative in design", reports to the Commissioner's "Reports sent to you"); "Send back" needs a comment;
+  run history card. Two prototype "Ask" bugs stay fixed (per-person spend, press pickup).
+- **Tipline, press, audit, offices** (`audit-outreach.md`): claims can be closed as "Not of public interest" and escalations
+  marked handled; DD Accounts decides a flagged order (Clear / Withhold payment with reason / Resolved); HQ tasks are real
+  (Commissioner assigns, DIO completes); citizen escalations can be resolved; feed type filters.
+- **Registers** (`audit-registers.md`): statewide-record note for district logins; one-click actions per register
+  (renew/suspend empanelment, return bill for proof, RTI replied/closed/first appeal, UC received/overdue, welfare
+  documents, reject/refer, hold/proof checked); a bill without proof cannot be sanctioned or paid.
+- **Spend & upload** (`audit-spend.md`): see the spend bullet above; upload step errors clear, the replace option says how
+  many records it removes.
+- **Shell, roles, admin** (`audit-shell.md`): each role lands on its first module; browser Back/Forward between modules;
+  session expiry returns to sign-in with a message; dialog focus handling; a role × module test pins the access matrix.
 
 ## 4. Architecture
 

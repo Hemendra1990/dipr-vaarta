@@ -69,7 +69,7 @@ New claims and feed items appear in the console within 15 seconds, with a toast 
 ## Tests
 
 ```bash
-cd backend && mvn test     # 31 tests: access rules, registers, press, spend, tipline/bot, admin, upload, agents
+cd backend && mvn test     # 58 tests: role matrix, registers, press, spend, tipline/bot, outreach, agents, admin, upload
 
 # browser smoke test: signs in as every role and opens every module (backend and frontend running)
 NODE_PATH=$(npm root -g) node tools/e2e-smoke.mjs http://localhost:3000

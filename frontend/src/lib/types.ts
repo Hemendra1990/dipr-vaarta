@@ -93,6 +93,7 @@ export type FeedResolvable = FeedEntry & { resolvedBy?: string | null; resolvedA
 export type OfficeTask = {
   id: number; district: string; title: string; due: string; status: "Open" | "Done"; assignedBy: string; assignedAt: string;
   doneBy: string | null; doneAt: string | null; doneNote: string | null;
+};
 // --- AI agents (command area) ---
 /** An agent card for the signed-in user (GET /api/agents). */
 export type AgentCard = AgentInfo & { canRun: boolean; canApprove: boolean; note: string | null };
