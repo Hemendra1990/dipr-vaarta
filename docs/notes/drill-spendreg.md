@@ -44,3 +44,15 @@ tables and AI notes changed with the node at every level; no card came up empty 
 - The statewide-records note keeps working at district and taluk level (DIO via `/statewide`).
 - A vendor login (statewide vendor) sees zero area bars and the prototype empty text below state: its rows are
   statewide, exactly as in the prototype.
+
+## Follow-up from the drill e2e run (drill/e2e)
+- "Same campaign type across years": the fallback type is now chosen from the same rows the chart uses (including the
+  like-for-like April–September months), so a taluk with spend of other types never shows the empty text.
+  The text still shows when the selection has no April–September spend at all (e.g. the Health nodal officer in
+  Mysuru taluk: one order, January 2023). Turning like-for-like off shows it.
+- Release orders card: payers start on "Billed" only when the selection has a billed order, otherwise on "All"; a
+  status picked by the user sticks. With no orders at all the card says "No release orders in this selection."
+- Health nodal officer, Aland taluk: the seed has no Health orders there (coverage is per district/taluk, not per
+  department), so the empty texts there are true to the data.
+- The remaining e2e failures on this branch are address (#spend/…) routing and shell checks, which belong to the
+  shell worker's branch, not to Spend.

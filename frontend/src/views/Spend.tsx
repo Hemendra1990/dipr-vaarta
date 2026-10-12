@@ -1287,7 +1287,7 @@ function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (i
           </table>
         </div>
       ) : (
-        <div className="empty">No release orders with this status in the selection.</div>
+        <div className="empty">{rows.length ? "No release orders with this status in the selection." : "No release orders in this selection."}</div>
       )}
       {list.length > n && (
         <button className="btn more" onClick={() => setN(n + 30)}>
