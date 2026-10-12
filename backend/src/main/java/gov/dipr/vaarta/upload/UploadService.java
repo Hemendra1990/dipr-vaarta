@@ -273,7 +273,11 @@ public class UploadService {
         switch (d.id()) {
             case "spend" -> {
                 if (replace) spend.deleteScoped(u.district(), u.department());
-                List<SpendOrder> rows = p.good().stream().map(mapper::toSpend).toList();
+                // An append never duplicates a release order: rows whose RO number is already stored are skipped.
+                Set<String> existing = new HashSet<>(spend.allRoNumbers());
+                List<SpendOrder> rows = p.good().stream().map(mapper::toSpend).filter(r -> existing.add(r.roNo)).toList();
+                int dupes = p.good().size() - rows.size();
+                b.rowsImported = rows.size(); b.rowsSkipped = p.skipped() + dupes;
                 rows.forEach(r -> r.uploadId = b.id);
                 spend.saveAll(rows);
             }

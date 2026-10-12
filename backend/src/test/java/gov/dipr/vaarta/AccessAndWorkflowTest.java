@@ -147,4 +147,20 @@ class AccessAndWorkflowTest {
         assertThat(f.get("reviewStatus").asText()).isEqualTo("Sent for review");
         send(jd(), "/api/ads/flags/review", Map.of("ro", ro)).andExpect(status().isForbidden());
     }
+
+    @Test
+    void appendingReleaseOrdersThatAlreadyExistSkipsThem() throws Exception {
+        String dd = token("dd.accounts", Role.DD_ACCOUNTS);
+        int before = read(dd, "/api/spend/orders").size();
+        // the template's sample rows are existing orders, so re-uploading it must not duplicate them
+        byte[] tpl = mvc.perform(get("/api/uploads/spend/template").header("Authorization", dd)).andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        MockMultipartFile f = new MockMultipartFile("file", "spend.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", tpl);
+        JsonNode rep = json.readTree(mvc.perform(multipart("/api/uploads/spend/validate").file(f).header("Authorization", dd))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(rep.get("goodCount").asInt()).isPositive();
+        JsonNode batch = json.readTree(send(dd, "/api/uploads/" + rep.get("uploadId").asText() + "/import", Map.of("mode", "append"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(batch.get("rowsImported").asInt()).isZero();
+        assertThat(read(dd, "/api/spend/orders").size()).isEqualTo(before);
+    }
 }
