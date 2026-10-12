@@ -48,7 +48,9 @@ class OutreachAuditTest {
     @Test
     void adFlagReviewOutcomeIsRecordedByAccountsOnly() throws Exception {
         JsonNode flags = read(commr(), "/api/ads/flags");
-        String ro = flags.get(flags.size() - 1).get("ro").asText();
+        // the last flag still waiting for review (sample data also holds older flags that were already decided)
+        String ro = null;
+        for (JsonNode f : flags) if ("Flagged".equals(f.get("reviewStatus").asText())) ro = f.get("ro").asText();
         // Not sent yet: no decision possible.
         send(dd(), "/api/ads/flags/decide", Map.of("ro", ro, "outcome", "cleared")).andExpect(status().isBadRequest());
         JsonNode sent = ok(send(commr(), "/api/ads/flags/review", Map.of("ro", ro)));

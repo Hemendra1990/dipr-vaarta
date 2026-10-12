@@ -33,8 +33,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(properties = {"spring.datasource.url=jdbc:h2:mem:vaarta-seedcov;DB_CLOSE_DELAY=-1", "spring.jpa.hibernate.ddl-auto=create-drop"})
 @AutoConfigureMockMvc
 class SeedCoverageTest {
-    /** Registers tied to vendors, release orders or one office per district; filled per district, not per taluk. */
-    static final Set<String> NO_TALUK_FILL = Set.of("empanel", "bills", "admin");
+    /** One District Information Office per district, filed under the headquarters taluk: filled per district only. */
+    static final Set<String> NO_TALUK_FILL = Set.of("admin");
+    static final String HEALTH = "Health & Family Welfare";
 
     @Autowired MockMvc mvc;
     @Autowired JwtService jwt;
@@ -119,10 +120,57 @@ class SeedCoverageTest {
         Set<String> f = keys("feed", feed.findAll(), x -> x.district, x -> x.taluk);
         Set<String> a = keys("ad flags", flags.findAll(), x -> x.district, x -> x.taluk);
         Set<String> p = keys("releases", releases.findAll(), x -> x.district, x -> x.taluk);
-        for (Set<String> s : List.of(c, f, a, p)) assertThat(s).containsAll(ref.districts());
+        for (Set<String> s : List.of(c, f, a, p)) assertThat(s).containsAll(ref.districts()).containsAll(allTaluks());
+        // the fill rows are settled, so the live queues keep the prototype's counts
+        assertThat(claims.findAll().stream().filter(x -> !Set.of("Published", "Closed").contains(x.status))).hasSize(7);
+        assertThat(feed.findAll().stream().filter(x -> "pulse".equals(x.type))).hasSize(3);
+        assertThat(feed.findAll().stream().filter(x -> "esc".equals(x.type))).hasSize(1);
+        assertThat(flags.findAll().stream().filter(x -> "Flagged".equals(x.reviewStatus))).hasSize(5);
+        assertThat(flags.findAll()).allSatisfy(x -> { if (!"Flagged".equals(x.reviewStatus)) assertThat(x.decidedBy).isNotNull(); });
         // the prototype's own rows keep their place: Raichur's pulse names Sindhanur, the Manvi escalation stays in Manvi
         assertThat(feed.findAll()).anySatisfy(x -> { assertThat(x.note).contains("Sindhanur"); assertThat(x.taluk).isEqualTo("Sindhanur"); });
         assertThat(feed.findAll()).anySatisfy(x -> { assertThat(x.note).contains("(Manvi)"); assertThat(x.taluk).isEqualTo("Manvi"); });
+    }
+
+    @Test
+    void healthHasSpendBillsAndMediaInEveryTaluk() {
+        // booked Health orders in April to September of the current year (like-for-like months) in every taluk
+        Set<String> sp = keys("health spend", spend.findAll().stream().filter(o -> HEALTH.equals(o.department) && o.booked()
+                && "2026-27".equals(o.fy) && o.month.compareTo("2026-04") >= 0 && o.month.compareTo("2026-09") <= 0).toList(), o -> o.district, o -> o.taluk);
+        assertThat(sp).containsAll(allTaluks());
+        for (String reg : List.of("bills", "media")) {
+            Set<String> seen = keys("health " + reg, records.findScoped(reg, null, HEALTH, null), r -> r.district, this::talukOf);
+            assertThat(seen).as("Health " + reg + " in every taluk").containsAll(allTaluks());
+        }
+    }
+
+    @Test
+    void stateSpendTotalsAreThePrototypes() {
+        // the Health fill and PR-K02's district editions are paid for out of statewide orders, so these stay as generated
+        double total = spend.findAll().stream().mapToDouble(o -> o.amount).sum();
+        double health = spend.findAll().stream().filter(o -> HEALTH.equals(o.department)).mapToDouble(o -> o.amount).sum();
+        double k02 = spend.findAll().stream().filter(o -> "PR-K02".equals(o.vendorId)).mapToDouble(o -> o.amount).sum();
+        assertThat(total).isCloseTo(67816.80, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(health).isCloseTo(5167.61, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(k02).isCloseTo(3004.98, org.assertj.core.data.Offset.offset(0.05));
+        // every district has an order awaiting payment (the payer's default status)
+        Set<String> billed = new HashSet<>();
+        spend.findAll().stream().filter(o -> "Billed".equals(o.status)).forEach(o -> billed.add(o.district));
+        assertThat(billed).containsAll(ref.districts());
+    }
+
+    @Test
+    void theDemoVendorHasDistrictOrdersAndBillsInEveryDivision() {
+        Set<String> divs = new HashSet<>(), billDivs = new HashSet<>();
+        spend.findAll().stream().filter(o -> "PR-K02".equals(o.vendorId) && !statewide(o.district)).forEach(o -> {
+            divs.add(ref.divisionOf(o.district));
+            assertThat(o.taluk).isNotNull();
+        });
+        records.findScoped("bills", null, null, "PR-K02").stream().filter(r -> !statewide(r.district)).forEach(r -> billDivs.add(ref.divisionOf(r.district)));
+        Set<String> all = new HashSet<>();
+        ref.districts().forEach(d -> all.add(ref.divisionOf(d)));
+        assertThat(divs).isEqualTo(all);
+        assertThat(billDivs).isEqualTo(all);
     }
 
     @Test
