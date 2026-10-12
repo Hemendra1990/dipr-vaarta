@@ -14,4 +14,10 @@ public interface BudgetLineRepo extends JpaRepository<BudgetLine, Long> {
 
     @Modifying @Query("delete from BudgetLine b")
     int deleteAllRows();
+
+    @Modifying @Query("delete from BudgetLine b where (:dept is null or b.department = :dept)")
+    int deleteScoped(@Param("dept") String department);
+
+    @Query("select count(b) from BudgetLine b where (:dept is null or b.department = :dept)")
+    long countScoped(@Param("dept") String department);
 }

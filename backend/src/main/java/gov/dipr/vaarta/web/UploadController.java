@@ -36,7 +36,7 @@ public class UploadController {
                 x.put("typeLabel", UploadService.typeLabel(f)); x.put("allowed", UploadService.allowed(f));
                 return x;
             }).toList());
-            m.put("count", uploads.count(d));
+            m.put("count", uploads.count(u, d));
             m.put("sample", uploads.sample(u, d).stream().map(r -> d.schema().stream().map(f -> UploadService.exampleValue(f, r)).toList()).toList());
             return m;
         }).toList();

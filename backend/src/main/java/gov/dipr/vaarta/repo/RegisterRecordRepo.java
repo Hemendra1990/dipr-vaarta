@@ -25,4 +25,18 @@ public interface RegisterRecordRepo extends JpaRepository<RegisterRecord, Long> 
     @Modifying
     @Query("delete from RegisterRecord r where r.registerId = :reg")
     int deleteByRegister(@Param("reg") String registerId);
+
+    /** Replace-mode import for a scoped user removes only the rows inside their scope. */
+    @Modifying
+    @Query("""
+            delete from RegisterRecord r where r.registerId = :reg
+              and (:district is null or r.district = :district)
+              and (:dept is null or r.department = :dept)""")
+    int deleteScoped(@Param("reg") String registerId, @Param("district") String district, @Param("dept") String department);
+
+    @Query("""
+            select count(r) from RegisterRecord r where r.registerId = :reg
+              and (:district is null or r.district = :district)
+              and (:dept is null or r.department is null or r.department = :dept)""")
+    long countScoped(@Param("reg") String registerId, @Param("district") String district, @Param("dept") String department);
 }

@@ -121,7 +121,7 @@ frontend/  Next.js 15 (App Router, TypeScript)  ──►  /api/*  ──►  ba
 | `GET /api/outreach/base` | Taluk-level outreach base metrics (scoped) |
 | `GET /api/tipline/claims`, `POST /api/tipline/claims`, `POST /api/tipline/claims/{id}/transition` | Claim queue and workflow |
 | `GET /api/press/releases` | Press releases |
-| `GET /api/ads/flags`, `POST /api/ads/flags/{id}/review` | Audit flags |
+| `GET /api/ads/flags`, `POST /api/ads/flags/review` (`{ro}`) | Audit flags |
 | `GET /api/offices/feed`, `POST /api/offices/feed` | Ground feed |
 | `GET /api/spend/orders`, `GET /api/spend/budget`, `GET /api/spend/vendors` | Spend data (scoped) |
 | `GET /api/registers/{id}/rows` | Register records (scoped) |

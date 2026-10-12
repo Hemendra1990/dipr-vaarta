@@ -18,4 +18,15 @@ public interface SpendOrderRepo extends JpaRepository<SpendOrder, Long> {
 
     @Modifying @Query("delete from SpendOrder s")
     int deleteAllRows();
+
+    /** Replace-mode import for a scoped user removes only the rows inside their scope. */
+    @Modifying @Query("""
+            delete from SpendOrder s where (:district is null or s.district = :district)
+              and (:dept is null or s.department = :dept)""")
+    int deleteScoped(@Param("district") String district, @Param("dept") String department);
+
+    @Query("""
+            select count(s) from SpendOrder s where (:district is null or s.district = :district)
+              and (:dept is null or s.department = :dept)""")
+    long countScoped(@Param("district") String district, @Param("dept") String department);
 }

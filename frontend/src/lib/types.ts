@@ -1,0 +1,63 @@
+export type FieldDef = { k: string; h: string; t: string; req: boolean; e?: string[]; sw?: boolean; ex?: string };
+
+export type RegisterDef = {
+  id: string; group: string; title: string; sub: string; schema: FieldDef[]; status: string; order: string[];
+  dim: string; dimLabel: string; sum: string | null; cols: string[]; geoAll: boolean; wa: string | null; banner: string | null;
+};
+
+export type Reference = {
+  divisions: Record<string, string[]>;
+  population: Record<string, number>;
+  codes: Record<string, string>;
+  hex: Record<string, [number, number]>;
+  taluks: Record<string, string[]>;
+  schemes: Record<string, number>;
+  languages: string[];
+  channels: string[];
+  departments: string[];
+  campaignTypes: string[];
+  schemesList: string[];
+};
+
+export type CalendarInfo = { asOf: string; curFy: string; lastYm: string; elapsed: number; fys: string[] };
+
+export type Meta = {
+  reference: Reference;
+  calendar: CalendarInfo;
+  registers: RegisterDef[];
+  sources: Record<string, { file: string; when: string }>;
+};
+
+export type User = {
+  username: string; displayName: string; role: string; roleKey: string; title: string; titleKn: string; scope: string;
+  district: string | null; department: string | null; vendorId: string | null; modules: string[]; icon: string; color: string;
+};
+
+export type Row = Record<string, string | number> & { _days?: number; _left?: number | "" };
+
+export type SpendRow = {
+  roNo: string; fy: string; month: string; quarter: string; campaignId: string; campaign: string; ctype: string;
+  department: string; channel: string; vendorId: string; vendor: string; district: string; amount: number; status: string;
+};
+
+export type BudgetRow = { fy: string; department: string; channel: string; budget: number };
+
+export type VendorInfo = { id: string; kind: string; channel: string; district: string; language: string; name: string };
+
+export type Claim = {
+  id: string; text: string; lang: string; district: string; category: string; status: string; verdict: string;
+  receivedAt: string; forwards: number; source: string; approvedBy: string | null;
+};
+
+export type Release = { id: string; title: string; dept: string; district: string; hoursAfterEvent: number; reach: number; kits: number; pickup: number };
+
+export type FeedItem = { id: number; type: string; district: string; scheme: string | null; sentiment: string | null; note: string; author: string; createdAt: string };
+
+export type AdFlag = { ro: string; publication: string; issue: string; amount: number; district: string; severity: string; reviewStatus: string; sentBy: string | null };
+
+export type AgentInfo = { id: string; name: string; does: string; guard: string };
+
+export type AgentRun = {
+  id: number; agentId: string; name: string; target: string | null; status: string; steps: string[]; output: string;
+  approveLabel: string; startedBy: string; decidedBy: string | null; toast?: { title: string; body: string };
+};

@@ -46,10 +46,14 @@ public class UploadService {
         this.coercer = new FieldCoercer(ref.districts());
     }
 
-    /** Datasets this user may upload: the registers of modules they can open; vendors upload nothing. */
+    /**
+     * Datasets this user may upload: the registers of modules they can open; vendors upload nothing.
+     * The budget is a state-level table with no district, so district-pinned users cannot upload it.
+     */
     public List<DatasetDef> available(CurrentUser u) {
         if (u.vendorId() != null || !u.can("upload")) return List.of();
-        return ref.datasets().stream().filter(d -> u.can(d.module())).toList();
+        return ref.datasets().stream().filter(d -> u.can(d.module()))
+                .filter(d -> !(d.id().equals("budget") && u.district() != null)).toList();
     }
 
     public DatasetDef require(CurrentUser u, String id) {
@@ -57,12 +61,19 @@ public class UploadService {
                 .orElseThrow(() -> new CurrentUser.AccessDeniedException("Your login cannot upload " + id + "."));
     }
 
-    public long count(DatasetDef d) {
+    /** Records of this dataset inside the user's scope, which is what a replace-mode import would remove. */
+    public long count(CurrentUser u, DatasetDef d) {
         return switch (d.id()) {
-            case "spend" -> spend.count();
-            case "budget" -> budget.count();
-            default -> records.countByRegisterId(d.id());
+            case "spend" -> spend.countScoped(u.district(), u.department());
+            case "budget" -> budget.countScoped(u.department());
+            default -> records.countScoped(d.id(), scopedDistrict(u, d), u.department());
         };
+    }
+
+    /** Geo-all registers (campaigns, film, publications, grants) are not district-filtered, as in the prototype. */
+    private String scopedDistrict(CurrentUser u, DatasetDef d) {
+        boolean geoAll = ref.register(d.id()).map(RegisterDef::geoAll).orElse(false);
+        return geoAll ? null : u.district();
     }
 
     /** Up to three of the user's own rows, used as examples in the format preview and the template. */
@@ -232,7 +243,7 @@ public class UploadService {
         out.put("badRows", badRows);
         out.put("goodCount", good.size());
         out.put("preview", good.subList(0, Math.min(6, good.size())));
-        out.put("existing", count(d));
+        out.put("existing", count(u, d));
         return out;
     }
 
@@ -251,20 +262,20 @@ public class UploadService {
         batches.save(b);
         switch (d.id()) {
             case "spend" -> {
-                if (replace) spend.deleteAllRows();
+                if (replace) spend.deleteScoped(u.district(), u.department());
                 List<SpendOrder> rows = p.good().stream().map(mapper::toSpend).toList();
                 rows.forEach(r -> r.uploadId = b.id);
                 spend.saveAll(rows);
             }
             case "budget" -> {
-                if (replace) budget.deleteAllRows();
+                if (replace) budget.deleteScoped(u.department());
                 List<BudgetLine> rows = p.good().stream().map(mapper::toBudget).toList();
                 rows.forEach(r -> r.uploadId = b.id);
                 budget.saveAll(rows);
             }
             default -> {
                 RegisterDef reg = ref.register(d.id()).orElseThrow();
-                if (replace) records.deleteByRegister(reg.id());
+                if (replace) records.deleteScoped(reg.id(), u.district(), u.department());
                 records.saveAll(p.good().stream().map(r -> mapper.toRecord(reg.id(), r, b.id)).toList());
             }
         }
