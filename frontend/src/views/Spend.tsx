@@ -670,7 +670,7 @@ export function Spend() {
             ) : (
               <>
                 <p className="cap">
-                  {lakh(spent)} spent through {nIN(vArr.length)} {label(n)} vendor{vArr.length === 1 ? "" : "s"} in this selection.
+                  {lakh(spent)} spent through {nIN(vArr.length)} vendor{vArr.length === 1 ? "" : "s"} in {label(n)} in this selection.
                 </p>
                 {vendorIt.length > 0 && <BarList items={vendorIt} />}
               </>
