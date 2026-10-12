@@ -1,7 +1,7 @@
 // Spend analytics model, ported from the prototype: filters, period roll-ups, budget comparison and insights.
 import { MON, sumA } from "./format";
 import { api, ApiError, token } from "./api";
-import type { BudgetRow, CalendarInfo, SpendRow, User } from "./types";
+import type { BudgetRow, CalendarInfo, SpendRow, User, WithTaluk } from "./types";
 import type { Period } from "@/components/charts";
 
 export type SpState = {
@@ -159,7 +159,7 @@ export class SpendModel {
 
 // ---- Release-order workflow: issue → bill (vendor) → pay (accounts), and budget edits ----
 
-export type SpendOrderRow = SpendRow & {
+export type SpendOrderRow = SpendRow & WithTaluk & {
   /** `amount` is what spend figures count (bill amount once billed or paid); `orderAmount` is the amount on the RO. */
   orderAmount?: number; cancelledBy?: string; cancelledOn?: string; cancelReason?: string;
   id: number; billNo?: string; billAmount?: number; billDate?: string; paidOn?: string; paymentRef?: string; issuedBy?: string; issuedOn?: string;
@@ -186,6 +186,8 @@ export const orderAmt = (r: SpendOrderRow) => r.orderAmount ?? r.amount;
 
 export type IssueInput = {
   campaignId: string; campaign: string; ctype: string; department: string; channel: string; vendorId: string; district: string; month: string; amount: number;
+  /** Optional taluk of the district; statewide orders have none. */
+  taluk?: string;
 };
 
 async function put<T>(path: string, body: unknown): Promise<T> {

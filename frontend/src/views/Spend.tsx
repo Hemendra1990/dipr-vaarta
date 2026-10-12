@@ -792,7 +792,7 @@ function useSubmit(onDone: () => void) {
 }
 
 function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow[]; vendors: VendorInfo[]; onClose: () => void; onIssued: (id: number) => void }) {
-  const { user, meta } = useApp();
+  const { user, meta, node } = useApp();
   const ref = meta.reference;
   const cal = meta.calendar;
   const districts = useMemo(() => Object.values(ref.divisions).flat().sort(), [ref.divisions]);
@@ -803,8 +803,8 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
   }, [rows, cal]);
   const thisMonth = cal.asOf.slice(0, 7);
   const [f, setF] = useState({
-    pick: "", campaignId: "", campaign: "", ctype: ref.campaignTypes[0], department: ref.departments[0], district: user.district || "Statewide",
-    channel: ref.channels[0], vendorId: "", month: thisMonth, amount: "",
+    pick: "", campaignId: "", campaign: "", ctype: ref.campaignTypes[0], department: ref.departments[0], district: user.district || (node.lvl === "dist" || node.lvl === "tlk" ? node.dist! : "Statewide"),
+    taluk: node.lvl === "tlk" ? node.name : "", channel: ref.channels[0], vendorId: "", month: thisMonth, amount: "",
   });
   const up = (p: Partial<typeof f>) => setF((s) => ({ ...s, ...p }));
   const isNew = f.pick === "";
@@ -826,7 +826,7 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
         campaign: c ? c.campaign : f.campaign.trim(),
         ctype: c ? c.ctype : f.ctype,
         department: c ? c.department : f.department,
-        channel, vendorId, district: f.district, month: f.month, amount,
+        channel, vendorId, district: f.district, taluk: f.taluk || undefined, month: f.month, amount,
       });
       onIssued(o.id);
       return { title: "Release order issued", body: `${o.roNo} · ${o.vendorId} · ${lakh(o.amount)}` };
@@ -870,13 +870,23 @@ function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow
           </>
         )}
         <Fld l="District">
-          <select value={f.district} disabled={!!user.district} onChange={(e) => up({ district: e.target.value })}>
+          <select value={f.district} disabled={!!user.district} onChange={(e) => up({ district: e.target.value, taluk: "" })}>
             {!user.district && <option value="Statewide">Statewide</option>}
             {(user.district ? [user.district] : districts).map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
         </Fld>
+        {f.district !== "Statewide" && (
+          <Fld l="Taluk (optional)">
+            <select value={f.taluk} onChange={(e) => up({ taluk: e.target.value })}>
+              <option value="">Whole district</option>
+              {(ref.taluks[f.district] ?? []).map((x) => (
+                <option key={x}>{x}</option>
+              ))}
+            </select>
+          </Fld>
+        )}
         <Fld l="Channel">
           <select value={channel} onChange={(e) => up({ channel: e.target.value })}>
             {(chOpts.length ? chOpts : ref.channels).map((x) => (
@@ -1109,6 +1119,7 @@ function OrderPanel({ id, onClose, onAct }: { id: number; onClose: () => void; o
         ["Vendor", o.vendor],
         ["Channel", o.channel],
         ["District", o.district],
+        ...(o.taluk ? ([["Taluk", o.taluk]] as [string, React.ReactNode][]) : []),
         ["Month", `${dShow(o.month)} · ${o.fy} ${o.quarter}`],
         ["Order amount", lakh(orderAmt(o))],
         ["Bill", o.billNo ? `${o.billNo} · ${lakh(o.billAmount ?? 0)} · ${dShow(o.billDate)}` : "—"],
