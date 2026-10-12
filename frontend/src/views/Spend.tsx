@@ -153,8 +153,9 @@ export function Spend() {
 
   // Same campaign type across years
   const ts: Record<string, number> = {};
+  // Same rows as the chart below (incl. the like-for-like months), so a type with no spend there falls back to one that has.
   model.rows.forEach((r) => {
-    if (isBooked(r) && inNode(r) && (SP.dept === "All" || r.department === SP.dept)) ts[r.ctype] = (ts[r.ctype] || 0) + r.amount;
+    if (isBooked(r) && inNode(r) && (SP.dept === "All" || r.department === SP.dept) && (!SP.l4l || monIdx(r.month) < 6)) ts[r.ctype] = (ts[r.ctype] || 0) + r.amount;
   });
   let cmp = SP.cmp;
   if (!ts[cmp]) {
@@ -1194,7 +1195,9 @@ const ST_FILTERS = [
 
 function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (id: number) => void; onAct: (d: Dlg) => void }) {
   const { user } = useApp();
-  const [st, setSt] = useState<string>(canPay(user) ? "Billed" : "All");
+  // Payers start on "Billed" (what waits for them); when the selection has no billed order, start on "All". A picked status sticks.
+  const [stPick, setSt] = useState<string | null>(null);
+  const st = stPick ?? (canPay(user) && rows.some((r) => r.status === "Billed") ? "Billed" : "All");
   const [n, setN] = useState(10);
   const list = rows
     .filter((r) => st === "All" || r.status === st)
