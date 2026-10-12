@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
 @RestController
 @RequestMapping("/api/spend")
 public class SpendController {
-    public static final String ISSUED = "RO issued", BILLED = "Billed", PAID = "Paid";
+    public static final String ISSUED = "RO issued", BILLED = "Billed", PAID = "Paid", CANCELLED = SpendOrder.CANCELLED;
     /** A bill may exceed the RO by at most this share (e.g. taxes, rounding). */
     public static final double BILL_TOLERANCE = 0.05;
     private static final Pattern RO = Pattern.compile("^RO/\\d{2}/(\\d+)$");
@@ -53,12 +53,17 @@ public class SpendController {
         this.ref = ref; this.cal = cal; this.om = om;
     }
 
-    /** Release orders in the user's scope: own district, own department or own vendor code. */
+    /**
+     * Release orders in the user's scope: own district, own department or own vendor code.
+     * {@code amount} is the figure spend analytics count (bill amount once billed or paid, else the order amount);
+     * {@code orderAmount} is always the amount on the release order. Cancelled orders are left out unless
+     * {@code cancelled=true}, so every spend figure built on this list ignores them.
+     */
     @GetMapping("/orders")
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> orders(@AuthenticationPrincipal CurrentUser u) {
+    public List<Map<String, Object>> orders(@AuthenticationPrincipal CurrentUser u, @RequestParam(defaultValue = "false") boolean cancelled) {
         u.require("spend");
-        return orders.findScoped(u.district(), u.department(), u.vendorId()).stream().map(this::row).toList();
+        return orders.findScoped(u.district(), u.department(), u.vendorId()).stream().filter(o -> cancelled || o.counts()).map(this::row).toList();
     }
 
     /** One order with its history, if it is in the user's scope. */
@@ -128,7 +133,7 @@ public class SpendController {
         u.requireRole(Role.VENDOR);
         SpendOrder o = scoped(u, id);
         if (!Objects.equals(u.vendorId(), o.vendorId)) throw new CurrentUser.AccessDeniedException("You can bill only your own release orders.");
-        if (!ISSUED.equals(o.status)) throw new IllegalArgumentException(o.roNo + " is already " + o.status.toLowerCase() + ".");
+        if (!ISSUED.equals(o.status)) throw new IllegalArgumentException(o.roNo + " is " + (CANCELLED.equals(o.status) ? "cancelled" : "already " + o.status.toLowerCase()) + ".");
         String billNo = req(r.billNo(), "Bill number", 40);
         double amt = amount(r.amount(), "Bill amount");
         double cap = Math.round(o.amount * (1 + BILL_TOLERANCE) * 100) / 100.0;
@@ -150,13 +155,33 @@ public class SpendController {
         u.requireRole(Role.COMMISSIONER, Role.DD_ACCOUNTS);
         SpendOrder o = scoped(u, id);
         if (!BILLED.equals(o.status))
-            throw new IllegalArgumentException(ISSUED.equals(o.status) ? o.roNo + " has not been billed yet." : o.roNo + " is already paid.");
+            throw new IllegalArgumentException(ISSUED.equals(o.status) ? o.roNo + " has not been billed yet."
+                    : CANCELLED.equals(o.status) ? o.roNo + " is cancelled." : o.roNo + " is already paid.");
         String refNo = req(r.reference(), "Payment reference", 60);
         LocalDate d = date(r.paidOn(), "Payment date");
         if (o.billDate != null && d.isBefore(LocalDate.parse(o.billDate))) throw new IllegalArgumentException("Payment date cannot be before the bill date (" + o.billDate + ").");
         o.paidOn = d.toString(); o.paymentRef = refNo; o.status = PAID;
         addHistory(o, u, "Marked paid", "Paid on " + d + ", reference " + refNo);
         audit.record(u, "spend.pay", o.roNo + " · " + refNo + " · " + d);
+        return order(u, o.id);
+    }
+
+    public record CancelRequest(String reason) {}
+
+    /** Cancel a release order that has not been billed yet. Commissioner and DD Accounts only; a reason is required. */
+    @PostMapping("/orders/{id}/cancel")
+    @Transactional
+    public Map<String, Object> cancel(@AuthenticationPrincipal CurrentUser u, @PathVariable long id, @RequestBody CancelRequest r) {
+        u.require("spend");
+        u.requireRole(Role.COMMISSIONER, Role.DD_ACCOUNTS);
+        SpendOrder o = scoped(u, id);
+        if (!ISSUED.equals(o.status))
+            throw new IllegalArgumentException(CANCELLED.equals(o.status) ? o.roNo + " is already cancelled."
+                    : o.roNo + " is already " + o.status.toLowerCase() + ", so it can no longer be cancelled.");
+        String reason = req(r == null ? null : r.reason(), "Reason", 300);
+        o.status = CANCELLED; o.cancelledBy = u.username(); o.cancelledOn = LocalDate.now().toString(); o.cancelReason = reason;
+        addHistory(o, u, "Release order cancelled", reason);
+        audit.record(u, "spend.cancel", o.roNo + " · " + o.vendorId + " · ₹" + lakh(o.amount) + " L · " + reason);
         return order(u, o.id);
     }
 
@@ -212,9 +237,12 @@ public class SpendController {
     private Map<String, Object> row(SpendOrder o) {
         Map<String, Object> m = mapper.fromSpend(o);
         m.put("id", o.id);
+        m.put("orderAmount", o.amount);
+        m.put("amount", o.spendAmount());
         if (o.billNo != null) { m.put("billNo", o.billNo); m.put("billAmount", o.billAmount); m.put("billDate", o.billDate); }
         if (o.paidOn != null) { m.put("paidOn", o.paidOn); m.put("paymentRef", o.paymentRef); }
         if (o.issuedBy != null) { m.put("issuedBy", o.issuedBy); m.put("issuedOn", o.issuedOn); }
+        if (o.cancelledBy != null) { m.put("cancelledBy", o.cancelledBy); m.put("cancelledOn", o.cancelledOn); m.put("cancelReason", o.cancelReason); }
         return m;
     }
 

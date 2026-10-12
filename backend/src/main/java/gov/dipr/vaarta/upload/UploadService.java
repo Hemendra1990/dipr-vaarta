@@ -61,12 +61,21 @@ public class UploadService {
                 .orElseThrow(() -> new CurrentUser.AccessDeniedException("Your login cannot upload " + id + "."));
     }
 
-    /** Records of this dataset inside the user's scope, which is what a replace-mode import would remove. */
+    /** Records of this dataset the user can see (the count shown in the register list). */
     public long count(CurrentUser u, DatasetDef d) {
         return switch (d.id()) {
             case "spend" -> spend.countScoped(u.district(), u.department());
             case "budget" -> budget.countScoped(u.department());
             default -> records.countScoped(d.id(), scopedDistrict(u, d), u.department());
+        };
+    }
+
+    /** Records a replace-mode import by this user would remove (DIO: own district only, also on geo-all registers). */
+    public long replaceCount(CurrentUser u, DatasetDef d) {
+        return switch (d.id()) {
+            case "spend" -> spend.countScoped(u.district(), u.department());
+            case "budget" -> budget.countScoped(u.department());
+            default -> records.countScoped(d.id(), u.district(), u.department());
         };
     }
 
@@ -80,7 +89,7 @@ public class UploadService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> sample(CurrentUser u, DatasetDef d) {
         return switch (d.id()) {
-            case "spend" -> spend.findScoped(u.district(), u.department(), null).stream().limit(3).map(mapper::fromSpend).toList();
+            case "spend" -> spend.findScoped(u.district(), u.department(), null).stream().filter(SpendOrder::counts).limit(3).map(mapper::fromSpend).toList();
             case "budget" -> budget.findScoped(u.department()).stream().limit(3).map(b -> {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("fy", b.fy); m.put("department", b.department); m.put("channel", b.channel); m.put("budget", b.budget);
@@ -244,6 +253,7 @@ public class UploadService {
         out.put("goodCount", good.size());
         out.put("preview", good.subList(0, Math.min(6, good.size())));
         out.put("existing", count(u, d));
+        out.put("replaceCount", replaceCount(u, d));
         return out;
     }
 
