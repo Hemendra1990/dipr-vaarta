@@ -14,6 +14,8 @@ public class PressRelease {
     public String dept;
     /** District name, or "State" for statewide releases. */
     public String district;
+    /** One of the district's taluks (sample data, or when the sender names one); null for statewide items. */
+    @Column(length = 60) public String taluk;
     public double hoursAfterEvent;
     public int reach;
     public int kits;

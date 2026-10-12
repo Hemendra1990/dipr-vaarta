@@ -43,7 +43,7 @@ public class UploadService {
                          UploadBatchRepo batches, RecordMapper mapper, AuditService audit) {
         this.ref = ref; this.spend = spend; this.budget = budget; this.records = records; this.batches = batches;
         this.mapper = mapper; this.audit = audit;
-        this.coercer = new FieldCoercer(ref.districts());
+        this.coercer = new FieldCoercer(ref.districts(), ref.taluks());
     }
 
     /**
@@ -103,7 +103,7 @@ public class UploadService {
         return switch (f.t()) {
             case "id" -> "Text (unique ID)"; case "code" -> "Text (code)"; case "text" -> "Text"; case "num" -> "Number";
             case "money" -> "Number, in ₹ lakh"; case "inr" -> "Number, in ₹"; case "date" -> "Date"; case "month" -> "Month";
-            case "fy" -> "Financial year"; case "enum" -> "One of a list"; case "district" -> "District name"; case "yn" -> "Yes or No";
+            case "fy" -> "Financial year"; case "enum" -> "One of a list"; case "district" -> "District name"; case "taluk" -> "Taluk name"; case "yn" -> "Yes or No";
             default -> f.t();
         };
     }
@@ -112,6 +112,7 @@ public class UploadService {
         return switch (f.t()) {
             case "enum" -> String.join(" · ", f.e());
             case "district" -> "Any of the 31 districts" + (f.statewideAllowed() ? ", or Statewide" : "");
+            case "taluk" -> "A taluk of the row's district; empty for Statewide rows";
             case "date" -> "DD-MM-YYYY, or an Excel date";
             case "month" -> "Mmm-YYYY, for example Apr-2026";
             case "fy" -> "YYYY-YY, for example 2026-27";
@@ -215,7 +216,7 @@ public class UploadService {
             for (FieldDef f : d.schema()) {
                 Integer idx = map.get(f.k());
                 Object raw = idx == null || idx >= row.size() ? "" : row.get(idx);
-                FieldCoercer.Result r = coercer.coerce(f, raw);
+                FieldCoercer.Result r = coercer.coerce(f, raw, o);
                 if (!r.ok()) {
                     bad = true;
                     errors.add(new RowError(i + 1, f.h(), raw == null ? "" : raw.toString(), r.message()));

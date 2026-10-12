@@ -12,6 +12,8 @@ public class FeedItem {
     public Long id;
     @Column(length = 20) public String type;
     public String district;
+    /** One of the district's taluks (sample data, or when the sender names one); null for statewide items. */
+    @Column(length = 60) public String taluk;
     public String scheme;
     public String sentiment;
     @Column(length = 1000) public String note;

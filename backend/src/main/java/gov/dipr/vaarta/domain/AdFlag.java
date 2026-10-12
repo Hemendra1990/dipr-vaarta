@@ -16,6 +16,8 @@ public class AdFlag {
     @Column(length = 500) public String issue;
     public double amount;
     public String district;
+    /** One of the district's taluks (sample data, or when the sender names one); null for statewide items. */
+    @Column(length = 60) public String taluk;
     public String severity;
     public String reviewStatus;
     public String sentBy;

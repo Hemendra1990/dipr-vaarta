@@ -20,6 +20,8 @@ public class SpendOrder {
     public String vendorId;
     public String vendor;
     public String district;
+    /** One of the district's taluks; null for statewide orders and for orders issued or uploaded without one. */
+    @Column(length = 60) public String taluk;
     public double amount;
     public String status;
     public Long uploadId;

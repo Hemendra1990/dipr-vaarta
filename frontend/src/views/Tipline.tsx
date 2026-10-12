@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { HBars, KpiTile, Spark } from "@/components/charts";
 import { api } from "@/lib/api";
 import { ago, fmt, hash, pct } from "@/lib/format";
-import { CHILD_LVL, label, nodeKey } from "@/lib/geo";
+import { CHILD_LVL, label, nodeKey, placeOf, talukOf } from "@/lib/geo";
 import { useApi, useApp } from "@/lib/store";
 import type { Claim, ClaimDetail, ClaimInfo } from "@/lib/types";
 import { isFresh } from "@/lib/updates";
@@ -26,7 +26,7 @@ export function Tipline() {
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="tipline" />;
   const m = o.M(n, f);
-  const all = data.filter((c) => geo.inNode(c.district, n) || n.lvl === "state");
+  const all = data.filter((c) => geo.inNode(c.district, n, talukOf(c)) || n.lvl === "state");
   const q = all.filter((c) => cf === "All" || c.status === cf);
   const cats = (
     [
@@ -189,7 +189,7 @@ export function Tipline() {
                         {c.id} · {c.lang} · {c.source} · {ago(c.receivedAt)}
                       </small>
                     </td>
-                    <td>{c.district}</td>
+                    <td>{placeOf(c.district, c)}</td>
                     <td>{c.category}</td>
                     <td className="r">{fmt(c.forwards)}</td>
                     <td>
@@ -384,7 +384,7 @@ function ClaimPanel({ id, onClose, next }: { id: string; onClose: () => void; ne
             <p className="cp-text">{c.text}</p>
             <dl>
               <dt>District</dt>
-              <dd>{c.district}</dd>
+              <dd>{placeOf(c.district, c)}</dd>
               <dt>Language</dt>
               <dd>{c.lang}</dd>
               <dt>Type</dt>

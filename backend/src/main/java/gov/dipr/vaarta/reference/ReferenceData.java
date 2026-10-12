@@ -19,6 +19,7 @@ public class ReferenceData {
     private final List<DatasetDef> datasets = new ArrayList<>();
     private final Map<String, String> divisionOf = new HashMap<>();
     private final List<String> districts = new ArrayList<>();
+    private final Map<String, List<String>> taluks = new LinkedHashMap<>();
 
     public ReferenceData(ObjectMapper om) throws IOException {
         this.reference = read(om, "reference.json", new TypeReference<JsonNode>() {});
@@ -32,6 +33,11 @@ public class ReferenceData {
             divisionOf.put(d.asText(), e.getKey());
             districts.add(d.asText());
         }));
+        reference.get("taluks").fields().forEachRemaining(e -> {
+            List<String> ts = new ArrayList<>();
+            e.getValue().forEach(t -> ts.add(t.asText()));
+            taluks.put(e.getKey(), List.copyOf(ts));
+        });
     }
 
     private static <T> T read(ObjectMapper om, String name, TypeReference<T> type) throws IOException {
@@ -48,4 +54,13 @@ public class ReferenceData {
     public List<String> districts() { return districts; }
     public String divisionOf(String district) { return divisionOf.get(district); }
     public boolean isDistrict(String name) { return divisionOf.containsKey(name); }
+    /** Taluks of every district, in reference order (the first is the district headquarters). */
+    public Map<String, List<String>> taluks() { return Collections.unmodifiableMap(taluks); }
+    public List<String> taluksOf(String district) { return district == null ? List.of() : taluks.getOrDefault(district, List.of()); }
+    /** The taluk's name as spelt in the reference list, if it is a taluk of that district (case-insensitive), else null. */
+    public String talukOf(String district, String taluk) {
+        if (taluk == null) return null;
+        String t = taluk.trim();
+        return taluksOf(district).stream().filter(x -> x.equalsIgnoreCase(t)).findFirst().orElse(null);
+    }
 }

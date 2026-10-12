@@ -39,18 +39,33 @@ export class Geo {
     return true;
   }
 
-  /** Prototype inNode: records tagged "State" or no district count only at state level. */
-  inNode(dist: string | undefined, n: Node): boolean {
-    if (!dist || dist === "State") return n.lvl === "state";
+  /**
+   * Prototype inNode: records tagged "State" or no district count only at state level. With a taluk (round-3 data
+   * contract) a record shows at its own taluk only; a district record without a taluk shows at every taluk of it.
+   */
+  inNode(dist: string | undefined, n: Node, taluk?: string | null): boolean {
+    if (!dist || dist === "State" || dist === "Statewide") return n.lvl === "state";
     if (n.lvl === "state") return true;
     if (n.lvl === "div") return this.DIV_OF[dist] === n.div;
-    return dist === n.dist;
+    if (dist !== n.dist) return false;
+    if (n.lvl === "tlk" && taluk) return taluk === n.name;
+    return true;
   }
 
-  inScope(dist: string, n: Node) {
-    return dist === "State" || this.inNode(dist, n);
+  /** Statewide records show at every level (press releases); district records follow inNode. */
+  inScope(dist: string, n: Node, taluk?: string | null) {
+    return dist === "State" || dist === "Statewide" || this.inNode(dist, n, taluk);
   }
 }
+
+/** The taluk a row is tagged with, if any (rows from /tipline, /press, /ads and /offices carry `taluk`). */
+export const talukOf = (r: object): string | null => ((r as { taluk?: string | null }).taluk ?? null) || null;
+
+/** "District · Taluk" for a row's place column. */
+export const placeOf = (dist: string, r: object): string => {
+  const t = talukOf(r);
+  return t ? `${dist} · ${t}` : dist;
+};
 
 export const label = (n: Node) => (n.lvl === "div" ? n.name + " Division" : n.name);
 export const nodeKey = (n: Node) => [n.lvl, n.div || "", n.dist || "", n.name].join("/");
