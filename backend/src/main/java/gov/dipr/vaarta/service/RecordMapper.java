@@ -52,6 +52,7 @@ public class RecordMapper {
     public RegisterRecord toRecord(String registerId, Map<String, Object> row, Long uploadId) {
         RegisterRecord r = new RegisterRecord();
         r.registerId = registerId;
+        row.remove("_id");
         Object dist = row.get("district");
         if (dist == null || "".equals(dist)) {
             row.put("district", "Statewide");
@@ -69,9 +70,12 @@ public class RecordMapper {
         return r;
     }
 
+    /** The stored row, plus its database id as {@code _id} so the API can address it for edits. */
     public Map<String, Object> fromRecord(RegisterRecord r) {
         try {
-            return om.readValue(r.data, new TypeReference<LinkedHashMap<String, Object>>() {});
+            LinkedHashMap<String, Object> m = om.readValue(r.data, new TypeReference<LinkedHashMap<String, Object>>() {});
+            if (r.id != null) m.put("_id", r.id);
+            return m;
         } catch (JsonProcessingException e) {
             throw new IllegalStateException(e);
         }
