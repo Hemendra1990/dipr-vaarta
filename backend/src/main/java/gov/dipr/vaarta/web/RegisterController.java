@@ -49,6 +49,28 @@ public class RegisterController {
         return registers.advance(u, id, rowId, req == null ? null : req.stage());
     }
 
+    /** Named one-click actions of this register (renew, return for proof, mark replied ...). */
+    @GetMapping("/{id}/actions")
+    public List<gov.dipr.vaarta.service.RegisterActions.Action> actions(@AuthenticationPrincipal CurrentUser u, @PathVariable String id) {
+        registers.def(id);
+        u.require(id);
+        return gov.dipr.vaarta.service.RegisterActions.of(id);
+    }
+
+    public record ActionRequest(String action) {}
+
+    @PostMapping("/{id}/rows/{rowId}/action")
+    public Map<String, Object> act(@AuthenticationPrincipal CurrentUser u, @PathVariable String id, @PathVariable long rowId,
+                                   @RequestBody ActionRequest req) {
+        return registers.act(u, id, rowId, req == null ? null : req.action());
+    }
+
+    /** How many statewide records the register has within the user's department/vendor scope. */
+    @GetMapping("/{id}/statewide")
+    public Map<String, Object> statewide(@AuthenticationPrincipal CurrentUser u, @PathVariable String id) {
+        return Map.of("count", registers.statewide(u, id));
+    }
+
     @DeleteMapping("/{id}/rows/{rowId}")
     public Map<String, Object> delete(@AuthenticationPrincipal CurrentUser u, @PathVariable String id, @PathVariable long rowId) {
         registers.delete(u, id, rowId);

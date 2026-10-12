@@ -328,5 +328,9 @@ export const records = {
   create: (reg: string, row: FormVals) => write<Row>("POST", `/registers/${reg}/rows`, row),
   update: (reg: string, id: number, row: FormVals) => write<Row>("PUT", `/registers/${reg}/rows/${id}`, row),
   advance: (reg: string, id: number, stage?: string) => write<Row>("POST", `/registers/${reg}/rows/${id}/advance`, stage ? { stage } : {}),
+  act: (reg: string, id: number, action: string) => write<Row>("POST", `/registers/${reg}/rows/${id}/action`, { action }),
   remove: (reg: string, id: number) => write<{ deleted: number }>("DELETE", `/registers/${reg}/rows/${id}`),
 };
+
+/** A named one-click action of a register (from GET /api/registers/{id}/actions). */
+export type RegAction = { key: string; label: string; from: string[]; to: string; set: Record<string, string>; hint: string };

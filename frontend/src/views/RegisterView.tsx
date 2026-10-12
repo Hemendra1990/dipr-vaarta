@@ -4,7 +4,7 @@ import { BarList, Kpi } from "@/components/charts";
 import { fmt, lakh, nIN, toneOf } from "@/lib/format";
 import { CHILD_LVL, geoChildren, label } from "@/lib/geo";
 import { api } from "@/lib/api";
-import { derive, formValues, makeCtx, nextStage, records, REG_LOGIC, RowError, type FormVals } from "@/lib/registers";
+import { derive, formValues, makeCtx, nextStage, records, REG_LOGIC, RowError, type FormVals, type RegAction } from "@/lib/registers";
 import { useApi, useApp } from "@/lib/store";
 import type { FieldDef, Meta, RegisterDef, Row, User } from "@/lib/types";
 import { colDef, Empty, ErrorNote, FmtCell, isNumT, Loading } from "./common";
@@ -16,6 +16,9 @@ export function RegisterView({ def }: { def: RegisterDef }) {
   const { node, geo, meta, canSee, drillTo, goUpload, user, toast } = useApp();
   const { data, error } = useApi<Row[]>(`/registers/${def.id}/rows`);
   const live = useApi<Meta>("/meta").data ?? meta;
+  // A district officer never receives statewide rows; the server tells how many there are for the prototype's note.
+  const swCount = useApi<{ count: number }>(user.district && !def.geoAll ? `/registers/${def.id}/statewide` : null).data?.count ?? 0;
+  const actions = useApi<RegAction[]>(`/registers/${def.id}/actions`).data ?? [];
   const ctx = useMemo(() => makeCtx(meta.calendar), [meta]);
   const [status, setStatus] = useState("All");
   const [cat, setCat] = useState<string | null>(null);
@@ -67,7 +70,7 @@ export function RegisterView({ def }: { def: RegisterDef }) {
     .sort((a, b) => b.v - a.v)
     .slice(0, 10)
     .map((x) => ({ l: x.l, v: x.v, d: nIN(x.v), onClick: () => drillTo({ lvl: x.ch.lvl, name: x.ch.name }) }));
-  const sw = node.lvl !== "state" && !def.geoAll ? rows.filter((r) => r.district === "Statewide").length : 0;
+  const sw = node.lvl !== "state" && !def.geoAll ? (user.district ? swCount : rows.filter((r) => r.district === "Statewide").length) : 0;
   const src = live.sources?.[def.id];
 
   let list = all;
@@ -275,6 +278,7 @@ export function RegisterView({ def }: { def: RegisterDef }) {
           districts={geo.ALL_D}
           fy={meta.calendar.curFy}
           canWrite={canWrite}
+          actions={actions}
           onClose={() => setPanel(null)}
         />
       )}
@@ -284,6 +288,14 @@ export function RegisterView({ def }: { def: RegisterDef }) {
       </div>
     </div>
   );
+}
+
+/** The deadline counters of the table (days pending, days left), for the panel subtitle. */
+function due(r: Row | null): string {
+  if (!r) return "";
+  if (r._left !== undefined && r._left !== "") return +r._left < 0 ? ` · ${-r._left} days past the 30-day deadline` : ` · ${r._left} days left to reply`;
+  if (r._days) return ` · pending ${r._days} days`;
+  return "";
 }
 
 /** Whether this login may change this record: own district for district officers, own department for nodal officers. */
@@ -302,8 +314,8 @@ function options(f: FieldDef, u: User, districts: string[]): string[] | null {
 }
 
 /** Side panel to add or edit one record, with a form generated from the register's schema. */
-function RecordPanel({ def, row, user, districts, fy, canWrite, onClose }: {
-  def: RegisterDef; row: Row | null; user: User; districts: string[]; fy: string; canWrite: boolean; onClose: () => void;
+function RecordPanel({ def, row, user, districts, fy, canWrite, actions, onClose }: {
+  def: RegisterDef; row: Row | null; user: User; districts: string[]; fy: string; canWrite: boolean; actions: RegAction[]; onClose: () => void;
 }) {
   const { invalidate, toast } = useApp();
   const init = useMemo(() => formValues(def, row, { district: user.district, department: user.department, fy }), [def, row, user, fy]);
@@ -348,6 +360,8 @@ function RecordPanel({ def, row, user, districts, fy, canWrite, onClose }: {
       isNew ? "Record added" : "Record saved",
       `${def.title}: ${(idF && vals[idF.k]) || name || "record"} ${isNew ? "added" : "updated"}.`,
     );
+  const acts = row ? actions.filter((a) => a.from.includes(String(row[def.status]))) : [];
+  const act = (a: RegAction) => run(() => records.act(def.id, id, a.key), a.label, `${name || "Record"} moved to ${a.to}.`);
   const move = () => next && run(() => records.advance(def.id, id), "Stage moved", `${name || "Record"} moved to ${next}.`);
   const del = () => {
     if (!window.confirm(`Delete ${name || "this record"} from ${def.title}? This cannot be undone.`)) return;
@@ -364,7 +378,7 @@ function RecordPanel({ def, row, user, districts, fy, canWrite, onClose }: {
               {isNew
                 ? "Fill in the fields. Required fields are marked *."
                 : editable
-                  ? `${def.title} · ${String(row?.[def.status] ?? "")}`
+                  ? `${def.title} · ${String(row?.[def.status] ?? "")}${due(row)}`
                   : "Your login can view this record but not change it."}
             </p>
           </div>
@@ -428,6 +442,18 @@ function RecordPanel({ def, row, user, districts, fy, canWrite, onClose }: {
                   Move to {next} →
                 </button>
               )}
+              {acts.map((a) => (
+                <button
+                  key={a.key}
+                  type="button"
+                  className="btn"
+                  disabled={busy || dirty}
+                  title={dirty ? "Save your changes first" : a.hint || undefined}
+                  onClick={() => act(a)}
+                >
+                  {a.label}
+                </button>
+              ))}
               {!isNew && user.role === "COMMISSIONER" && (
                 <button type="button" className="btn rp-del" disabled={busy} onClick={del}>
                   Delete

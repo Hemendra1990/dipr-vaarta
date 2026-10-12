@@ -47,9 +47,10 @@ public class RegisterService {
     private final RecordMapper mapper;
     private final AuditService audit;
     private final FieldCoercer coercer;
+    private final Calendar cal;
 
-    public RegisterService(ReferenceData ref, RegisterRecordRepo repo, RecordMapper mapper, AuditService audit) {
-        this.ref = ref; this.repo = repo; this.mapper = mapper; this.audit = audit;
+    public RegisterService(ReferenceData ref, RegisterRecordRepo repo, RecordMapper mapper, AuditService audit, Calendar cal) {
+        this.ref = ref; this.repo = repo; this.mapper = mapper; this.audit = audit; this.cal = cal;
         this.coercer = new FieldCoercer(ref.districts());
     }
 
@@ -63,6 +64,17 @@ public class RegisterService {
         RegisterDef def = def(id);
         u.require(id);
         return visible(u, def).stream().map(mapper::fromRecord).toList();
+    }
+
+    /**
+     * Statewide records of the register within the user's department/vendor scope (not district). A district officer
+     * never receives them, but the prototype still tells them how many exist ("N statewide records ... state level").
+     */
+    @Transactional(readOnly = true)
+    public long statewide(CurrentUser u, String id) {
+        RegisterDef def = def(id);
+        u.require(id);
+        return repo.findScoped(def.id(), "Statewide", u.department(), u.vendorId()).size();
     }
 
     private List<RegisterRecord> visible(CurrentUser u, RegisterDef def) {
@@ -104,6 +116,9 @@ public class RegisterService {
         if (u.department() != null && out.containsKey("department") && !errors.containsKey("department")
                 && !u.department().equals(out.get("department")))
             errors.put("department", "Your login covers only " + u.department() + " records");
+        if (def.id().equals("bills") && !errors.containsKey("proof") && "Missing".equals(out.get("proof"))
+                && List.of("Sanctioned", "Paid").contains(String.valueOf(out.get(def.status()))))
+            errors.put("proof", "A bill without proof cannot be sanctioned or paid");
         FieldDef idF = idField(def);
         if (idF != null && !errors.containsKey(idF.k()) && !"".equals(out.get(idF.k()))) {
             String v = String.valueOf(out.get(idF.k()));
@@ -169,10 +184,58 @@ public class RegisterService {
                     .orElseThrow(() -> new IllegalArgumentException("\"" + cur + "\" is the last stage. Choose a stage in the form instead."));
         }
         if (target.equals(cur)) throw new IllegalArgumentException("The record is already at \"" + cur + "\".");
+        if (def.id().equals("bills") && "Missing".equals(row.get("proof")) && List.of("Sanctioned", "Paid").contains(target))
+            throw new IllegalArgumentException("This bill has no proof attached. Use \"Proof received\" first.");
         row.put(def.status(), target);
         save(r, def, row);
         audit.record(u, "register.advance", label(def, row, r.id) + " " + cur + " -> " + target);
         return mapper.fromRecord(r);
+    }
+
+    /** Runs a named action of {@link RegisterActions} on one record, with the same scope and field rules as an edit. */
+    @Transactional
+    public Map<String, Object> act(CurrentUser u, String id, long rowId, String key) {
+        RegisterDef def = def(id);
+        requireWriter(u, def);
+        RegisterActions.Action a = RegisterActions.find(def.id(), key == null ? "" : key)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown action for " + def.title() + "."));
+        RegisterRecord r = writable(u, def, rowId);
+        Map<String, Object> row = mapper.fromRecord(r);
+        String cur = String.valueOf(row.get(def.status()));
+        if (!a.from().contains(cur))
+            throw new IllegalArgumentException("\"" + a.label() + "\" is not possible at \"" + cur + "\".");
+        java.time.LocalDate today = cal.asOf();
+        switch (def.id() + "." + a.key()) {
+            case "empanel.renew" -> {
+                if (!(row.get("audited") instanceof Number n) || n.doubleValue() <= 0)
+                    throw new IllegalArgumentException("Record the audited circulation or reach first. Renewal needs an audit certificate on file.");
+                java.time.LocalDate till = parseDate(row.get("validTill"));
+                java.time.LocalDate base = till == null || till.isBefore(today) ? today : till;
+                row.put("validTill", base.plusYears(1).toString());
+            }
+            case "grants.overdue" -> {
+                java.time.LocalDate due = parseDate(row.get("ucDue"));
+                if (due != null && !due.isBefore(today))
+                    throw new IllegalArgumentException("The utilisation certificate is not due until " + due + ".");
+            }
+            default -> { }
+        }
+        row.putAll(a.set());
+        row.put(def.status(), a.to());
+        Map<String, Object> clean = validate(u, def, row, r.id);
+        Map<String, Object> merged = new LinkedHashMap<>(row);
+        merged.putAll(clean);
+        save(r, def, merged);
+        audit.record(u, "register.action", label(def, merged, r.id) + " " + a.label() + ": " + cur + " -> " + a.to());
+        return mapper.fromRecord(r);
+    }
+
+    private static java.time.LocalDate parseDate(Object v) {
+        try {
+            return v == null || "".equals(v) ? null : java.time.LocalDate.parse(v.toString());
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     public static Optional<String> nextStage(RegisterDef def, String cur) {

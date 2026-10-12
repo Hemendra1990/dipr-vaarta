@@ -10,6 +10,9 @@ outdoor, film, publications, archive, grants, admin, rti).
 | `POST /api/registers/{id}/rows` | Add a record. Body: the row as `{fieldKey: value}`. |
 | `PUT /api/registers/{id}/rows/{rowId}` | Edit a record (all schema fields are sent and validated; extra stored fields such as a bill's campaign name are kept). |
 | `POST /api/registers/{id}/rows/{rowId}/advance` | Move to the next stage, or to `{"stage": "<name>"}` if given (must be a stage of the register). |
+| `GET /api/registers/{id}/actions` | Named actions of the register: `[{key, label, from[], to, set{}, hint}]`. |
+| `POST /api/registers/{id}/rows/{rowId}/action` | Run one: `{"action": "renew"}`. Same scope and field rules as an edit. Audited as `register.action`. |
+| `GET /api/registers/{id}/statewide` | `{count}` of statewide rows in the user's department/vendor scope (for the DIO's statewide note). |
 | `DELETE /api/registers/{id}/rows/{rowId}` | Delete a record. Commissioner only. |
 | `GET /api/registers/{id}/export` | Excel (`Data` sheet) of the rows the user can see, with the upload template's headings and formats, so it can be edited and uploaded back. |
 
@@ -38,3 +41,26 @@ Validation errors return 400 `{message, errors: {fieldKey: message}}`; the form 
   inputs, date and month pickers, selects for lists, districts and Yes/No. District/department selects are narrowed to the
   user's own district/department. Esc or clicking outside closes it. New records default to the first stage, the user's
   district/department and the current financial year.
+
+## Actions (round 2)
+Shown in the edit panel next to "Move to …" when the record is at one of the "from" stages (disabled while there are
+unsaved edits). Who: the same people who may edit the record.
+| Register | Action | From | To | Also |
+|---|---|---|---|---|
+| Empanelment | Renew for one year | Renewal due, Expired, Suspended | Active | Valid till = one year after the later of today and the current end date. Refused when no audited figure is on file. |
+| Empanelment | Suspend | Active, Renewal due | Suspended | |
+| Bills | Return for proof | Received, Proof check | Returned | Proof = Missing |
+| Bills | Proof received | Returned | Proof check | Proof = Attached |
+| Welfare | Return for documents / Documents received | Received, Verified / Returned | Returned / Received | |
+| RTI | Mark replied | Received, Information sought | Replied | |
+| RTI | Close | Replied, First appeal | Closed | |
+| RTI | First appeal filed | Closed | First appeal | |
+| Grants | UC received | Released, UC due, UC overdue | UC received | |
+| Grants | Mark UC overdue | Released, UC due | UC overdue | Only after the UC due date. |
+| Film | Reject | Received, Screening, Committee decision | Rejected | |
+| Election | Reject / Refer to Returning Officer | Received, Under review | Rejected / Referred to Returning Officer | |
+| Events | No release needed | Pending | Not needed | |
+| Field | Put on hold / Proof checked | Logged, Geo-verified, Approved / On hold | On hold / Geo-verified | Proof checked sets Geo-tag check = Verified |
+
+- **Bill proof rule:** a bill whose proof is Missing cannot be Sanctioned or Paid (edit or move).
+- **Statewide note for DIOs:** as in the prototype, a district officer sees how many statewide records exist (they cannot open them).
