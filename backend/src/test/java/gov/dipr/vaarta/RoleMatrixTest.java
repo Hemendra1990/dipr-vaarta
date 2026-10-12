@@ -234,7 +234,7 @@ class RoleMatrixTest {
     /** Only the Commissioner and the Joint Director (News) publish a verdict; a DIO can take a claim up to Draft ready. */
     @Test
     void districtOfficerCannotPublishAVerdict() throws Exception {
-        Map<String, Object> c = Map.of("text", "Raichur forward about Gruha Jyothi", "lang", "Kannada", "district", "Raichur", "category", "Scheme");
+        Map<String, Object> c = Map.of("text", "Raichur forward about Gruha Jyothi", "lang", "Kannada", "district", "Raichur", "category", "Scheme rumour");
         var res = mvc.perform(post("/api/tipline/claims").header("Authorization", auth(Role.DIO)).contentType(MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(c))).andReturn().getResponse();
         assertThat(res.getStatus()).isEqualTo(200);
