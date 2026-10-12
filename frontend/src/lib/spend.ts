@@ -30,7 +30,8 @@ export function fyMonths(fy: string): string[] {
 
 export const chv = (channels: string[]) => (c: string) => "var(--ch" + (channels.indexOf(c) + 1) + ")";
 
-type Ig = { fy?: boolean; ct?: boolean; ch?: boolean; vc?: boolean };
+/** Filters to ignore: year, campaign type, channel, vendor/campaign, and place (the drill node). */
+type Ig = { fy?: boolean; ct?: boolean; ch?: boolean; vc?: boolean; geo?: boolean };
 
 export class SpendModel {
   /** Rows that count in spend figures (cancelled orders left out). `all` keeps them for the order lists. */
@@ -60,7 +61,7 @@ export class SpendModel {
         (sp.dept === "All" || r.department === sp.dept) &&
         (ig.vc || !sp.vendor || r.vendorId === sp.vendor) &&
         (ig.vc || !sp.campaign || r.campaignId === sp.campaign) &&
-        this.geoOk(r),
+        (ig.geo || this.geoOk(r)),
     );
   }
 

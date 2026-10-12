@@ -2,6 +2,7 @@
 import { fmt, inr, lakh, nIN, pct, sumA } from "./format";
 import { token } from "./api";
 import type { CalendarInfo, RegisterDef, Row } from "./types";
+import type { Geo, Node } from "./geo";
 
 type K = [string, string | number, string, string?];
 type Num = (r: Row) => number;
@@ -271,6 +272,31 @@ export const REG_LOGIC: Record<string, { kpis: (a: Row[], c: RegCtx) => K[]; ai:
       "Most RTI applications ask about advertisement spend by outlet. The agent drafts replies straight from the spend data, so the Advertisement wing only reviews and signs.",
   },
 };
+
+// ---------- Places: taluk-aware node filters shared by registers and spend ----------
+
+type Placed = Record<string, unknown>;
+const talukOf = (r: Placed) => (r.taluk ? String(r.taluk) : "");
+
+/**
+ * Whether rows of this district carry a taluk (seeded rows do; rows uploaded without a Taluk column may not).
+ * When they do, taluk nodes match on the taluk strictly, so an untagged row never shows in every taluk at once.
+ */
+export function taggedDistricts(rows: Placed[]): Set<string> {
+  const s = new Set<string>();
+  rows.forEach((r) => talukOf(r) && s.add(String(r.district)));
+  return s;
+}
+
+/** geo.geoOk with a strict taluk match in districts whose rows carry taluks; elsewhere a taluk shows its district's rows. */
+export function placeOk(geo: Geo, tagged: Set<string>, r: Placed, n: Node): boolean {
+  if (!geo.geoOk(r, n)) return false;
+  if (n.lvl !== "tlk" || !tagged.has(n.dist!)) return true;
+  return talukOf(r) === n.name;
+}
+
+/** Rows inside a district node that have no taluk: they count at district level but in no taluk bar. */
+export const untagged = (rows: Placed[], n: Node) => (n.lvl === "dist" ? rows.filter((r) => r.district === n.dist && !talukOf(r)).length : 0);
 
 // ---------- Record editing: stage moves, form values and the write calls ----------
 
