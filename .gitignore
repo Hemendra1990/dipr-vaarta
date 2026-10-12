@@ -1,0 +1,7 @@
+node_modules/
+.next/
+target/
+.run/
+data/
+*.log
+frontend/next-env.d.ts

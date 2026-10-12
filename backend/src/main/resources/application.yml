@@ -1,0 +1,41 @@
+server:
+  port: 8080
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2048
+spring:
+  application:
+    name: vaarta-backend
+  datasource:
+    url: jdbc:h2:file:${VAARTA_DATA_DIR:./data}/vaarta;AUTO_SERVER=TRUE
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate.jdbc.batch_size: 500
+      hibernate.order_inserts: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+vaarta:
+  # Date the dashboards treat as "today". The sample data is anchored to 7 Oct 2026. Use "today" for live data.
+  as-of-date: ${VAARTA_AS_OF:2026-10-07}
+  jwt-secret: ${VAARTA_JWT_SECRET:change-me-in-production-this-is-a-32-byte-minimum-dev-secret}
+  jwt-ttl-minutes: 480
+  seed-sample-data: true
+  demo-password: ${VAARTA_DEMO_PASSWORD:demo@2026}
+  cors-origins: ${VAARTA_CORS:http://localhost:3000}
+---
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/vaarta}
+    username: ${DB_USER:vaarta}
+    password: ${DB_PASSWORD:vaarta}
