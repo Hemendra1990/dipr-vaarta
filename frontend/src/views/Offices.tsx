@@ -42,7 +42,8 @@ export function Offices() {
   // Open HQ tasks come from the task list (assigned by HQ, closed by the office) once it has loaded.
   const openTasks = (nd: typeof n) => (tasks ? tasks.filter((t) => t.status === "Open" && geo.inNode(t.district, nd)).length : null);
   const taskOf = new Map(o.children(n).map((c) => [o.M(c, f), openTasks(c)] as const));
-  const showTbl = o.children(n).length > 0 && n.lvl !== "dist";
+  // The prototype stops the scorecard at division level; at a district it lists the taluks so the view can drill to them.
+  const showTbl = o.children(n).length > 0;
   const prof = n.lvl === "dist" || n.lvl === "tlk";
   return (
     <div className="grid">
@@ -178,7 +179,7 @@ export function Offices() {
         <div className="card s12">
           <div className="ch">
             <div>
-              <h3>District Information Office scorecard</h3>
+              <h3>{n.lvl === "dist" ? `Taluks of ${n.name}` : "District Information Office scorecard"}</h3>
               <p>{label(n)} · select a row to drill down</p>
             </div>
           </div>
@@ -189,7 +190,8 @@ export function Offices() {
               { k: "comp", label: "Report compliance", get: (x) => x.comp, fmt: (v) => pct(v, 0), bar: true, colf: (v) => (v < 0.75 ? "var(--crit)" : v < 0.85 ? "var(--warn)" : "var(--good)") },
               { k: "events", label: "Events covered", get: (x) => x.events, fmt },
               { k: "pulse", label: "Field pulse notes", get: (x) => x.pulse, fmt },
-              { k: "tasks", label: "Open HQ tasks", get: (x) => taskOf.get(x) ?? x.tasks, fmt: (v) => v.toFixed(0) },
+              // HQ tasks belong to the district office, so a taluk row has none of its own
+              ...(n.lvl === "dist" ? [] : [{ k: "tasks", label: "Open HQ tasks", get: (x: Record<string, number>) => taskOf.get(x) ?? x.tasks, fmt: (v: number) => v.toFixed(0) }]),
               { k: "readR", label: "Read rate", get: (x) => x.readR, fmt: (v) => pct(v, 0), chip: rateTone },
             ]}
           />
