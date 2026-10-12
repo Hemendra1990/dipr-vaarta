@@ -101,3 +101,6 @@ export type AgentCard = AgentInfo & { canRun: boolean; canApprove: boolean; note
 export type AgentRunFull = AgentRun & {
   startedAt: string; decidedAt: string | null; comment: string | null; area: string | null; sentTo: string | null; effect: string | null;
 };
+
+/** Round-3 data contract: district-tagged rows (spend, register rows, claims, releases, feed, ad flags) carry their taluk; statewide rows have none. */
+export type WithTaluk = { taluk?: string | null };

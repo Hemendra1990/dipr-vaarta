@@ -74,7 +74,8 @@ class PressTest {
         long issuedBefore = 0;
         int maxNo = 0;
         for (JsonNode r : read(commr(), "/api/press/releases")) {
-            if (!"Draft".equals(r.get("status").asText())) { issuedBefore++; maxNo = Math.max(maxNo, issuedNo(r.get("id").asText())); }
+            // supplementary sample releases (REL-1858 and below) do not advance the prototype's counter
+            if (!"Draft".equals(r.get("status").asText())) { if (issuedNo(r.get("id").asText()) >= 1859) issuedBefore++; maxNo = Math.max(maxNo, issuedNo(r.get("id").asText())); }
         }
         JsonNode p = ok(send(commr(), "/api/press/releases/" + d.get("id").asText() + "/issue", Map.of()));
         assertThat(p.get("status").asText()).isEqualTo("Issued");
