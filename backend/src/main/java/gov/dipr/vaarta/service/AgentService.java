@@ -169,9 +169,14 @@ public class AgentService {
         switch (r.agentId) {
             case "press" -> {
                 PressRelease p = new PressRelease();
-                p.id = "REL-" + (1875 + releases.count());
+                p.id = releases.nextReleaseId();
                 p.title = "Sindhanur: 312 youth register for Yuva Nidhi at special drive"; p.dept = "Skill Development"; p.district = "Raichur";
                 p.hoursAfterEvent = 1.4; p.reach = 58; p.issuedAt = Instant.now();
+                p.status = PressRelease.ISSUED; p.language = "English";
+                p.body = "A special Yuva Nidhi registration drive at Government First Grade College, Sindhanur registered 312 graduates and diploma holders on Tuesday. "
+                        + "Officials helped students complete the monthly self-declaration on the spot.";
+                p.draftedBy = "Press Release Composer (AI agent), run by " + r.startedBy; p.draftedAt = r.startedAt;
+                p.approvedBy = u.displayName();
                 releases.save(p);
                 msg = "Release sent|" + p.id + " queued to 58 Raichur-accredited journalists on WhatsApp.";
             }

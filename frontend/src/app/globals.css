@@ -475,3 +475,16 @@ code.hdrs{display:block;margin-top:6px;white-space:pre-wrap;user-select:all}
 .rp-acts{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 .rp-del{margin-left:auto;color:var(--crit)}
 @media (max-width:520px){.rp-form{grid-template-columns:1fr}.rp{border-radius:0}}
+/* ===================== press office ===================== */
+.pr-form{margin-bottom:12px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}
+.pr-form textarea.nc-in{width:100%;resize:vertical;font:inherit;line-height:1.5}
+.pr-form .slicer select{max-width:260px}
+.pr-drafts{margin-bottom:12px}
+.pr-drafts .sth{margin-top:0}
+.pr-detail{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--surface)}
+.pr-dh{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.pr-dh h4{margin:6px 0 0;font:700 15px var(--f-display)}
+.pr-body{margin:10px 0;white-space:pre-wrap;line-height:1.55;max-height:320px;overflow:auto}
+.pr-meta{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:12.5px}
+.pr-meta dt{color:var(--muted);font-weight:600}.pr-meta dd{margin:0}
+.pr-pick{display:flex;gap:6px;align-items:center;font-size:12.5px;font-weight:600}
