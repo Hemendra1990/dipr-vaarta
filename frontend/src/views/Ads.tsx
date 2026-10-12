@@ -17,6 +17,8 @@ export function Ads() {
   const [busy, setBusy] = useState<string | null>(null);
   if (error) return <ErrorNote msg={error} />;
   if (!o || !data) return <Loading what="audit data" />;
+  // flags already decided stay in the list below but no longer count as flagged
+  const openFlag = (x: AdFlagReview) => !x.reviewStatus || x.reviewStatus === "Flagged" || x.reviewStatus === "Sent for review";
   const m = o.M(n, f),
     fl = data.filter((x) => geo.inNode(x.district, n, talukOf(x)) || n.lvl === "state");
   const med = (
@@ -140,7 +142,7 @@ export function Ads() {
           <KpiTile l="Release orders" v={fmt(m.spend / 0.42)} d={o.dlt(n, "ro", f)} />
           <KpiTile l="Spend per 1,000 people" v={"₹" + m.spendPer1k.toFixed(0)} d={o.dlt(n, "pk1", f)} invert />
           <KpiTile l="Bills pending > 90 days" v={rs(m.spend * 0.14)} d={o.dlt(n, "pend", f)} invert />
-          <KpiTile l="Orders flagged by audit agent" v={String(fl.length)} d={o.dlt(n, "fl", f)} invert />
+          <KpiTile l="Orders flagged by audit agent" v={String(fl.filter(openFlag).length)} d={o.dlt(n, "fl", f)} invert />
         </div>
         <div className="card s7">
           <div className="ch">

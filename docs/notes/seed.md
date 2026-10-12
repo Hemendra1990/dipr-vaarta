@@ -15,10 +15,11 @@ generators in `tools/proto-data.js`. Gap report: `node tools/seed-coverage.mjs` 
     first taluk in the reference list.
   - The hand-written claims, feed items, flags and releases use a taluk their text names, if it names one. For example,
     "Women in Sindhanur" goes to Sindhanur and "(Manvi)" goes to Manvi.
-- In the JSON, `taluk` comes right after the district key. Apart from that, every prototype row is byte-identical to before.
+- In the JSON, `taluk` comes right after the district key. Apart from that, every prototype row is byte-identical to
+  before, except the amounts of 30 statewide 2026-27 spend orders and their bills (see Spend below).
 
 ## Supplementary rows (`"supplementary": true` in the seed JSON only)
-- Registers, except geo-all, empanelment, bills and offices:
+- **Registers other than geo-all, empanelment, bills and offices:**
   - A district with no rows gets one row.
   - After that, every taluk with no rows gets one row in that taluk.
   - Each row is a copy of a randomly chosen (seeded, deterministic) district row of the same register, so field
@@ -29,19 +30,45 @@ generators in `tools/proto-data.js`. Gap report: `node tools/seed-coverage.mjs` 
     - Outdoor sites are copied only from statewide vendors or the district's own vendor.
     - Field shows get "<taluk> GP n" as the village.
     - Archive ids follow AR-<year><serial>.
-- Empanelment, bills and offices are tied to the vendor list, release orders and one office per district, so they get
-  no per-taluk rows. They had no district gaps.
-- Spend: missing taluks would be filled with copies of a release order of the same district (district vendor). This
-  added no rows, because the 3,367 district orders already reach all 146 taluks once hashed. Spend totals are unchanged.
-- Claims, feed, ad flags and releases get one row per district that had none (23 claims, 26 feed items, 26 flags and
-  28 releases). They are written from short templates that name the district or taluk. To keep the prototype's live
-  queues as they were, these rows are older and settled:
-  - Claims are Published (False or Misleading) and 60–400 hours old.
-  - Feed items are daily reports or field pulse, 20–240 hours old. There are no open escalations.
-  - Releases are issued 48 hours ago and earlier. Their ids count down from REL-1858.
-  - Ad flags are new RO/2026 numbers, Flagged.
-- The `supplementary` marker is dropped when rows are loaded (RecordMapper / SampleDataLoader), so it is never stored
-  or returned by the API.
+- **Media:** every taluk first gets a Health & Family Welfare clip (copied from a Health clip), so the Health nodal
+  officer sees media everywhere. The generic fill then finds nothing left to add.
+- **Spend:**
+  - **Health & Family Welfare:** a booked order (Billed or Paid) in every taluk in April–September 2026.
+    - Copied from a Health district order of that period.
+    - Bought from a vendor of that district, in the same channel when the district has one.
+    - This gives the nodal officer spend, like-for-like and bills at every level.
+  - **PR-K02:** two district-edition orders per division. Each is 15% of one of its own booked statewide orders this
+    year.
+  - **Billed status:** a district with no Billed order gets one of its Health fill orders marked Billed. This affected
+    only Mandya.
+  - **Totals unchanged:** each fill order is taken out of statewide booked 2026-27 orders of the same department.
+    - Taken first from the same campaign, month and status, then the same campaign and month, then the same department.
+    - PR-K02 editions come from PR-K02's own orders, and Health fill orders from other vendors' orders.
+    - No statewide order goes below 30% of its original amount.
+  - So total, booked, every financial year, every department and PR-K02's total stay exactly as generated. Only
+    channel, month and status mixes move a little (see seed-coverage.md). This is the one place where prototype rows
+    change beyond the added taluk: 30 statewide spend orders and their bills.
+- **Bills:**
+  - Every fill order from March 2026 on gets a bill, as the generator does: billNo continues BL/26/…, the bill date
+    falls in the next month, proof is Attached, and the stage is Paid, or Received / Proof check / Sanctioned when
+    the order is Billed.
+  - Bills of reduced statewide orders shrink by the same amount, so every bill still equals the sum of its orders.
+  - This puts bills in every district and taluk.
+- **Empanelment:**
+  - Every taluk with no empanelled vendor gets a new local vendor. The kind rotates through district daily, regional
+    cable, community radio, hoarding agency and folk troupe, and ids continue each series (PR-D17, TV-C04 …).
+  - The vendor is added to vendors.json and its empanelment row copies a vendor of the same medium.
+  - These vendors have no orders.
+- **Offices:** one row per district only.
+- **Claims, feed, ad flags and releases:** one settled row for every taluk with none, written from short templates
+  that name the taluk. They are settled so the live queues keep the prototype's counts:
+  - Claims are Published or Closed, with approvedBy set, and 7–37 days old.
+  - Feed items are daily reports only: no pulse notes and no escalations.
+  - Ad flags are Cleared or Resolved, with sentBy, decidedBy and a note, and decided days to weeks ago. They are
+    numbered RO/2026/3239 and down, so they list after the live ones. The publication is a vendor of that district.
+  - Releases were issued 2–37 days ago and are numbered REL-1858 and down.
+- The `supplementary` marker is dropped on load (RecordMapper / SampleDataLoader, including vendors.json), so it is
+  never stored or returned by the API.
 
 ## Backend
 - The `taluk` column (nullable) is added to SpendOrder, Claim, FeedItem, AdFlag and PressRelease. The APIs return it
@@ -63,27 +90,6 @@ generators in `tools/proto-data.js`. Gap report: `node tools/seed-coverage.mjs` 
   data, start with an empty data dir.
 
 ## State-level totals that change
-Spend, budget, vendors, campaigns, film, publications, grants, empanelment, bills, offices and outreach base are unchanged.
-
-| Register | Rows | Sum column |
-|---|---|---|
-| Media monitoring | 430 → 462 (+32) | — |
-| Social media | 380 → 453 (+73) | reach 6,93,56,000 → 7,09,14,000 (+2.2%) |
-| Crisis advisories | 58 → 153 (+95) | — (active now 3 → 11) |
-| Journalist welfare | 360 → 381 (+21) | — |
-| Events and coverage | 280 → 303 (+23) | — (pending 8 → 10) |
-| Election period | 150 → 206 (+56) | — |
-| Field and folk | 540 → 549 (+9) | audience 2,59,870 → 2,63,544 (+1.4%) |
-| Outdoor displays | 230 → 307 (+77) | cost ₹371 L → ₹485 L |
-| Photo and film archive | 420 → 472 (+52) | — |
-| RTI applications | 220 → 305 (+85) | — |
-
-| Live list | Rows |
-|---|---|
-| Tipline claims | 8 → 31 (all 23 new ones Published; the New, Triaged and Escalated counts are unchanged) |
-| Ground feed | 6 → 32 (no new escalations) |
-| Ad flags | 5 → 31 (all Flagged; flagged amount grows) |
-| Press releases | 6 → 34 (all issued; per-release reach of district releases is 48–150) |
-
-Stage mixes stay in proportion because every new row copies a real row. For example, crisis advisories go from 85%
-Closed to 83%.
+See `seed-coverage.md`, which has the current table. Spend, bills, budget, campaigns, film, publications, grants,
+offices and outreach base keep their state totals. Register row counts and the live lists grow, while the open
+tipline queue, pulse notes, escalations and Flagged orders keep the prototype's numbers.
