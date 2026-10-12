@@ -67,3 +67,9 @@ export type PressRelease = Release & {
   status: "Draft" | "Issued"; issuedAt: string | null; language: string | null; body: string | null;
   draftedBy: string | null; draftedAt: string | null; approvedBy: string | null;
 };
+// --- Tipline and live updates (WhatsApp bot) ---
+export type ClaimInfo = Claim & { clarification?: string | null; matchOf?: string | null; contact?: string | null; updatedAt?: string };
+export type FeedEntry = FeedItem & { channel?: string | null };
+export type ClaimHistory = { at: string; who: string; action: string; detail: string };
+export type ClaimDetail = { claim: ClaimInfo; history: ClaimHistory[]; related: ClaimInfo[]; canEdit: boolean; canPublish: boolean };
+export type LiveUpdates = { now: string; claims: ClaimInfo[]; feed: FeedEntry[] };

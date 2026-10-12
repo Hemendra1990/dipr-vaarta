@@ -6,6 +6,7 @@ import { NAV, OUTREACH } from "@/lib/nav";
 import { DEFAULT_FILTERS, Filters, Outreach, sig } from "@/lib/outreach";
 import { AppCtx, AppState, clearApiCache, Toasts, useToasts } from "@/lib/store";
 import type { AgentRun, Meta, User } from "@/lib/types";
+import { useLiveUpdates } from "@/lib/updates";
 import { ThemeButton } from "./Theme";
 import { ViewSwitch } from "@/views/ViewSwitch";
 
@@ -113,6 +114,8 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
     else if (i === 1) drillTo({ lvl: "div", name: drill.div! });
     else if (i === 2) drillTo({ lvl: "dist", name: drill.dist! });
   };
+  const unseen = useLiveUpdates({ user, tab, toast, invalidate: ctx.invalidate });
+  const badge = (k: string) => (k === "tipline" || k === "offices" ? unseen[k] : 0);
   const isOutreach = OUTREACH.has(tab);
   const navLabel = (k: string, l: string) => (k === "spend" && user.vendorId ? "My orders & payments" : l);
 
@@ -163,6 +166,11 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
                   {its.map(([k, l]) => (
                     <button key={k} aria-current={tab === k ? "page" : undefined} onClick={() => setTab(k)}>
                       {navLabel(k, l)}
+                      {badge(k) > 0 && (
+                        <span className="badge" aria-label={`${badge(k)} new`}>
+                          {badge(k)}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -178,6 +186,7 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
                     {its.map(([k, l]) => (
                       <option key={k} value={k}>
                         {navLabel(k, l)}
+                        {badge(k) > 0 ? ` (${badge(k)} new)` : ""}
                       </option>
                     ))}
                   </optgroup>

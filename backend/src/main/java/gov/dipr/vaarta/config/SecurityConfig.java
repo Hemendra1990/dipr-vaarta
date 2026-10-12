@@ -26,6 +26,8 @@ public class SecurityConfig {
             .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(a -> a
                 .requestMatchers("/api/auth/roles", "/api/auth/captcha", "/api/auth/login", "/api/health").permitAll()
+                // the WhatsApp bot gateway: checked by the shared X-Vaarta-Bot-Key header in BotController, not by JWT
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/bot/inbound").permitAll()
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().permitAll())
             .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
