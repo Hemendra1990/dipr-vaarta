@@ -39,11 +39,8 @@ check fails. The default mode takes about 3.5 minutes for all roles with `--jobs
 | AI agents | No agent runs yet | A fresh database has no runs until someone runs an agent. |
 | Data upload | No uploads yet / Your login has no data to upload | A fresh database has no history; some roles have no datasets. |
 | District offices | No open tasks from HQ | HQ tasks are created at run time, not seeded. |
-| Offices & staff, taluk | No records match | One District Information Office per district, filed under the HQ taluk. |
-| Empanelment, taluk | No records match | Vendors are empanelled per district or statewide, not per taluk. |
-| Bills, taluk | No records match | Bills exist only for billed release orders, so not every taluk has one. |
-| Vendor, every module | No records match / No release orders with this status | The demo vendor PR-K02 is a statewide outlet. All its rows are statewide. |
-| Vendor, drill controls | (none needed) | For the same reason, the vendor has nothing below Karnataka to drill to. |
+| Vendor, Spend: no place card | (drill not required) | The vendor's page lists its own release orders and has no place card, as in the prototype. |
+| Vendor, Empanelment: no area to drill | (drill not required) | A vendor has one empanelment record, and PR-K02 is statewide. |
 
 ## Shell decisions and fixes (`components/Console.tsx`)
 - **The address now carries the drill position.** It looks like `#tipline/Kalaburagi/Raichur/Sindhanur`, with spaces
@@ -66,7 +63,38 @@ check fails. The default mode takes about 3.5 minutes for all roles with `--jobs
 
 `lib/store.tsx` needed no change: it has no stuck loading, stale data or cache errors at any level.
 
-## Results against merged main (67ea29e + this branch, fresh data dir)
+## Zero-row areas
+The by-area bars (BarList) disable the bar for an area with no rows, so a zero area cannot be drilled and no level opens
+empty. The test:
+- uses only enabled controls
+- counts a place whose only control is a disabled bar as "skipped (zero rows)": it is listed in the report under
+  `skippedZeroRows` and is not a check
+- picks the first 3 districts per division that have rows, and the first such district for its taluks
+- fails a level only when every child bar is disabled although the parent level shows data (no empty state there)
+
+### Follow-up fixes to the test
+These were not app bugs.
+- **State-level "locator.click timeout" in admin, bills and empanel (Commissioner, DD Accounts, Vendor), and "area bar
+  cannot be clicked" (admin Bengaluru South, vendor empanel and bills):** these were all disabled zero-row bars. The
+  click timed out, and the keyboard fallback then pressed Enter on the element that already had focus (the
+  breadcrumb). That drilled *up* a level, so the next breadcrumb click waited for a crumb that was no longer there,
+  and the error landed on the state row.
+  - Disabled bars are now skipped.
+  - Enter is pressed only if the target control really took focus.
+  - Breadcrumb and drill-up steps now recover through the address and record why, instead of timing out.
+- **Empanelment drill to Bengaluru Urban "did not happen":** this was the same cascade. The view was left a level too
+  high by the misfired Enter. Bengaluru Urban has 2 empanelment rows and drills normally.
+
+## Results against main (99fceac, fresh data dir, port 8294/3294)
+- Default mode: **3,197 / 3,197 checks pass** (175 s, `--jobs 7`), with 74 zero-row places skipped.
+- `--full` (all 31 districts): **4,755 / 4,755 pass** (263 s).
+- The smoke test passes for all 7 roles.
+- The seed fills (taluk claims, feed, flags and releases; Health and vendor coverage), the outreach fixes (Offices
+  taluk table, scatter dots) and the Spend fixes are all on main, and the test confirms them. The view bugs listed in
+  the first run below are fixed there.
+
+## First run (before the seed, outreach and Spend fixes), kept for the record
+### Results against 67ea29e
 Default mode: 3,165 / 3,357 checks pass. The smoke test (`tools/e2e-smoke.mjs`) passes for all roles. Every shell
 check passes for all 7 roles: breadcrumbs, level labels, drill-up, address, Back, deep link, and the out-of-area
 guard. There are no page or console errors, no failed API calls, no stuck loading and no NaN values at any level.

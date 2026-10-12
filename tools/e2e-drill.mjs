@@ -48,7 +48,8 @@ const ALLOWED_EMPTY = [
 ];
 // Modules a role may not drill (the check is skipped, with the reason).
 const NO_DRILL_OK = [
-  // { role: "VENDOR", module: "*", why: "..." }
+  { role: "VENDOR", module: "spend", why: "the vendor's page lists its own release orders and has no place card, as in the prototype (docs/notes/drill-spendreg.md)" },
+  { role: "VENDOR", module: "empanel", why: "a vendor has one empanelment record; PR-K02 is a statewide outlet, so no division has one" },
 ];
 // "No data" phrases the views print outside an `.empty` block (they also fail unless whitelisted above).
 const EMPTY_PHRASES = [
@@ -329,7 +330,7 @@ async function runRole(browser, role, log) {
     };
     /** All children disabled (zero rows) is a failure only when the parent level itself shows data. */
     const allZero = (p, parent, zero, kids) => {
-      if (!kids.length || zero.length < kids.length) return;
+      if (!kids.length || zero.length < kids.length || noDrillOk) return;
       const parentEmpty = parent && parent.reasons.some((x) => /^empty (state|text)/.test(x));
       if (!parentEmpty) record(p, "drill check", [`every ${["division", "district", "taluk"][p.length]} bar is disabled (zero rows) although ${labelsFor(p).slice(-1)[0] || "Karnataka"} shows data`]);
     };
