@@ -1,9 +1,12 @@
 "use client";
-import { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { BarList, Kpi, StackChart } from "@/components/charts";
-import { dShow, lakh, nIN, pct, sumA, toneOf } from "@/lib/format";
+import { dShow, isoL, lakh, nIN, pct, sumA, toneOf } from "@/lib/format";
 import { CHILD_LVL, geoChildren, label } from "@/lib/geo";
-import { chv, isBooked, monIdx, SP_DEFAULT, SpendModel, SpState } from "@/lib/spend";
+import {
+  billCap, canBill, canEditBudget, canIssue, canPay, chv, fyOfMonth, isBooked, monIdx, nextCampaignId, SP_DEFAULT, spendApi, SpendModel, statusLabel,
+} from "@/lib/spend";
+import type { OrderDetail, SpendOrderRow, SpState } from "@/lib/spend";
 import { useApi, useApp } from "@/lib/store";
 import type { BudgetRow, Meta, Row, SpendRow, VendorInfo } from "@/lib/types";
 import { ErrorNote, Loading } from "./common";
@@ -47,13 +50,14 @@ function Sel({ id, lab, opts, v, onChange }: { id: string; lab: string; opts: (s
 
 export function Spend() {
   const { user, node: n, geo, meta, canSee, drillTo, goUpload } = useApp();
-  const orders = useApi<SpendRow[]>("/spend/orders");
+  const orders = useApi<SpendOrderRow[]>("/spend/orders");
   const budget = useApi<BudgetRow[]>("/spend/budget");
   const vendors = useApi<VendorInfo[]>("/spend/vendors").data ?? [];
   const camps = useApi<Row[]>(canSee("campaigns") ? "/registers/campaigns/rows" : null).data ?? [];
   const live = useApi<Meta>("/meta").data ?? meta;
   const [SP, setSPRaw] = useState<SpState>(SP_DEFAULT);
   const set = (p: Partial<SpState>) => setSPRaw((s) => ({ ...s, ...p }));
+  const [dlg, setDlg] = useState<Dlg | null>(null);
   const cal = meta.calendar,
     CHANNELS = meta.reference.channels,
     DEPTS = meta.reference.departments,
@@ -194,6 +198,11 @@ export function Spend() {
           </p>
         </div>
         <div className="mh-acts">
+          {canIssue(user) && (
+            <button className="btn pri" onClick={() => setDlg({ k: "issue" })}>
+              ＋ Issue release order
+            </button>
+          )}
           {src ? <span className="chip good">Uploaded · {src.file}</span> : <span className="chip">Sample data</span>}
           {canSee("upload") && !vend && (
             <>
@@ -342,6 +351,11 @@ export function Spend() {
                 <h3>Budget vs spent by department</h3>
                 <p>Variance against what should be spent by now</p>
               </div>
+              {canEditBudget(user) && (
+                <button className="btn" onClick={() => setDlg({ k: "budget", fy: SP.fy === "All" ? undefined : SP.fy, channel: SP.channel === "All" ? undefined : SP.channel })}>
+                  Edit budget
+                </button>
+              )}
             </div>
             <div className="tbw">
               <table className="tb tight">
@@ -392,22 +406,38 @@ export function Spend() {
                     <th>Department</th>
                     <th className="r">Amount</th>
                     <th>Status</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
-                  {rows
+                  {(rows as SpendOrderRow[])
                     .slice()
                     .sort((a, b) => b.month.localeCompare(a.month))
                     .slice(0, SP.allC ? 400 : 25)
                     .map((r) => (
-                      <tr key={r.roNo}>
-                        <td className="num">{r.roNo}</td>
+                      <tr key={r.id} className="click" onClick={() => setDlg({ k: "order", id: r.id })}>
+                        <td className="num">
+                          <span className="nm">{r.roNo}</span>
+                        </td>
                         <td>{dShow(r.month)}</td>
                         <td>{r.campaign}</td>
                         <td>{r.department}</td>
                         <td className="r">{lakh(r.amount)}</td>
                         <td>
                           <span className={`chip ${toneOf(r.status === "RO issued" ? "Pending" : r.status)}`}>{r.status === "RO issued" ? "To be billed" : r.status}</span>
+                        </td>
+                        <td className="r">
+                          {canBill(user, r) && (
+                            <button
+                              className="btn pri"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDlg({ k: "bill", o: r });
+                              }}
+                            >
+                              Submit bill
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -616,8 +646,14 @@ export function Spend() {
               {lakh(swAmt)} went to statewide media (TV, statewide papers, digital) and is not split by district.
             </div>
           </div>
+          <OrdersCard rows={rows as SpendOrderRow[]} onOpen={(id) => setDlg({ k: "order", id })} onAct={setDlg} />
         </>
       )}
+      {dlg?.k === "issue" && <IssueDialog rows={orders.data} vendors={vendors} onClose={() => setDlg(null)} onIssued={(id) => setDlg({ k: "order", id })} />}
+      {dlg?.k === "order" && <OrderPanel id={dlg.id} onClose={() => setDlg(null)} onAct={setDlg} />}
+      {dlg?.k === "bill" && <BillDialog o={dlg.o} onClose={() => setDlg(null)} />}
+      {dlg?.k === "pay" && <PayDialog o={dlg.o} onClose={() => setDlg(null)} />}
+      {dlg?.k === "budget" && <BudgetDialog init={dlg} budget={budget.data} onClose={() => setDlg(null)} />}
     </div>
   );
 }
@@ -628,5 +664,508 @@ function SpendForecastButton() {
     <button className="btn pri" onClick={() => import("@/lib/agents").then((m) => m.runAgent(app, "spend"))}>
       Run Spend Forecaster
     </button>
+  );
+}
+
+// ---------------- Release-order workflow ----------------
+
+type Dlg =
+  | { k: "issue" }
+  | { k: "order"; id: number }
+  | { k: "bill"; o: SpendOrderRow }
+  | { k: "pay"; o: SpendOrderRow }
+  | { k: "budget"; dept?: string; channel?: string; fy?: string };
+
+function errMsg(e: unknown) {
+  return e instanceof Error ? e.message : "Something went wrong.";
+}
+
+function Dialog({ title, sub, onClose, children, wide }: { title: string; sub?: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === "Escape" && close.current();
+    window.addEventListener("keydown", k);
+    ref.current?.querySelector<HTMLElement>("input:not([disabled]),select:not([disabled])")?.focus();
+    return () => window.removeEventListener("keydown", k);
+  }, []);
+  return (
+    <div className="spdlg-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className={`spdlg ${wide ? "wide" : ""}`} role="dialog" aria-modal="true" aria-label={title} ref={ref}>
+        <div className="ch">
+          <div>
+            <h3>{title}</h3>
+            {sub && <p>{sub}</p>}
+          </div>
+          <button className="btn" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Fld({ l, children, full }: { l: string; children: React.ReactNode; full?: boolean }) {
+  return (
+    <label className={full ? "full" : ""}>
+      {l}
+      {children}
+    </label>
+  );
+}
+
+function useSubmit(onDone: () => void) {
+  const app = useApp();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async (f: () => Promise<{ title: string; body: string } | void>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const t = await f();
+      app.invalidate();
+      if (t) app.toast(t.title, t.body);
+      onDone();
+    } catch (e) {
+      setErr(errMsg(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, err, setErr, run };
+}
+
+function IssueDialog({ rows, vendors, onClose, onIssued }: { rows: SpendOrderRow[]; vendors: VendorInfo[]; onClose: () => void; onIssued: (id: number) => void }) {
+  const { user, meta } = useApp();
+  const ref = meta.reference;
+  const cal = meta.calendar;
+  const districts = useMemo(() => Object.values(ref.divisions).flat().sort(), [ref.divisions]);
+  const camps = useMemo(() => {
+    const m = new Map<string, SpendRow>();
+    rows.forEach((r) => m.has(r.campaignId) || m.set(r.campaignId, r));
+    return [...m.values()].filter((r) => r.fy === cal.curFy || r.fy === cal.fys[cal.fys.length - 2]).sort((a, b) => b.campaignId.localeCompare(a.campaignId));
+  }, [rows, cal]);
+  const thisMonth = cal.asOf.slice(0, 7);
+  const [f, setF] = useState({
+    pick: "", campaignId: "", campaign: "", ctype: ref.campaignTypes[0], department: ref.departments[0], district: user.district || "Statewide",
+    channel: ref.channels[0], vendorId: "", month: thisMonth, amount: "",
+  });
+  const up = (p: Partial<typeof f>) => setF((s) => ({ ...s, ...p }));
+  const isNew = f.pick === "";
+  const suggested = nextCampaignId(rows, fyOfMonth(f.month || thisMonth));
+  const chOpts = ref.channels.filter((c) => vendors.some((v) => v.channel === c && v.district === f.district));
+  const channel = chOpts.includes(f.channel) ? f.channel : chOpts[0] || f.channel;
+  const vOpts = vendors.filter((v) => v.channel === channel && v.district === f.district);
+  const vendorId = vOpts.some((v) => v.id === f.vendorId) ? f.vendorId : vOpts[0]?.id || "";
+  const { busy, err, setErr, run } = useSubmit(() => {});
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const c = camps.find((x) => x.campaignId === f.pick);
+    const amount = +f.amount;
+    if (!vendorId) return setErr("No " + channel.toLowerCase() + " vendor is empanelled for " + f.district + ". Pick another channel or place.");
+    if (!(amount > 0)) return setErr("Enter an amount in ₹ lakh.");
+    run(async () => {
+      const o = await spendApi.issue({
+        campaignId: c ? c.campaignId : f.campaignId.trim() || suggested,
+        campaign: c ? c.campaign : f.campaign.trim(),
+        ctype: c ? c.ctype : f.ctype,
+        department: c ? c.department : f.department,
+        channel, vendorId, district: f.district, month: f.month, amount,
+      });
+      onIssued(o.id);
+      return { title: "Release order issued", body: `${o.roNo} · ${o.vendorId} · ${lakh(o.amount)}` };
+    });
+  };
+  return (
+    <Dialog title="Issue release order" sub="The vendor sees it at once and can bill against it" onClose={onClose}>
+      <form className="spf" onSubmit={submit}>
+        <Fld l="Campaign" full>
+          <select value={f.pick} onChange={(e) => up({ pick: e.target.value })}>
+            <option value="">New campaign…</option>
+            {camps.map((c) => (
+              <option key={c.campaignId} value={c.campaignId}>
+                {c.campaignId} · {c.campaign}
+              </option>
+            ))}
+          </select>
+        </Fld>
+        {isNew && (
+          <>
+            <Fld l="Campaign id">
+              <input value={f.campaignId} placeholder={suggested} maxLength={20} onChange={(e) => up({ campaignId: e.target.value })} />
+            </Fld>
+            <Fld l="Campaign name">
+              <input value={f.campaign} required maxLength={120} placeholder="e.g. Dengue prevention, monsoon 2026" onChange={(e) => up({ campaign: e.target.value })} />
+            </Fld>
+            <Fld l="Campaign type">
+              <select value={f.ctype} onChange={(e) => up({ ctype: e.target.value })}>
+                {ref.campaignTypes.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            </Fld>
+            <Fld l="Department">
+              <select value={f.department} onChange={(e) => up({ department: e.target.value })}>
+                {ref.departments.map((x) => (
+                  <option key={x}>{x}</option>
+                ))}
+              </select>
+            </Fld>
+          </>
+        )}
+        <Fld l="District">
+          <select value={f.district} disabled={!!user.district} onChange={(e) => up({ district: e.target.value })}>
+            {!user.district && <option value="Statewide">Statewide</option>}
+            {(user.district ? [user.district] : districts).map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Fld>
+        <Fld l="Channel">
+          <select value={channel} onChange={(e) => up({ channel: e.target.value })}>
+            {(chOpts.length ? chOpts : ref.channels).map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Fld>
+        <Fld l="Vendor" full>
+          <select value={vendorId} onChange={(e) => up({ vendorId: e.target.value })} disabled={!vOpts.length}>
+            {!vOpts.length && <option value="">No empanelled vendor for this channel and place</option>}
+            {vOpts.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+                {v.language ? " · " + v.language : ""}
+              </option>
+            ))}
+          </select>
+        </Fld>
+        <Fld l="Month">
+          <input type="month" value={f.month} required min={cal.fys[0].slice(0, 4) + "-04"} max={+cal.curFy.slice(0, 4) + 1 + "-03"} onChange={(e) => up({ month: e.target.value })} />
+        </Fld>
+        <Fld l="Amount (₹ lakh)">
+          <input type="number" inputMode="decimal" min="0.01" max="10000" step="0.01" required value={f.amount} onChange={(e) => up({ amount: e.target.value })} />
+        </Fld>
+        <p className="cap full">
+          {user.district ? `You can issue orders for ${user.district} only, with vendors based there. ` : ""}
+          District vendors take orders for their own district; statewide media take statewide orders. The RO number is given on saving.
+        </p>
+        {err && <div className="note bad full">{err}</div>}
+        <div className="upacts full">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn pri" disabled={busy}>
+            {busy ? "Issuing…" : "Issue release order"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function BillDialog({ o, onClose }: { o: SpendOrderRow; onClose: () => void }) {
+  const cap = billCap(o.amount);
+  const [f, setF] = useState({ billNo: "", amount: String(o.amount), billDate: isoL(new Date()) });
+  const { busy, err, setErr, run } = useSubmit(onClose);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = +f.amount;
+    if (!(amount > 0)) return setErr("Enter the bill amount in ₹ lakh.");
+    if (amount > cap) return setErr(`The bill can be at most ${lakh(cap)} (order amount plus 5%).`);
+    run(async () => {
+      const r = await spendApi.bill(o.id, { billNo: f.billNo.trim(), amount, billDate: f.billDate });
+      return { title: "Bill submitted", body: `${r.roNo} · bill ${r.billNo} · ${lakh(r.billAmount ?? amount)}` };
+    });
+  };
+  return (
+    <Dialog title="Submit bill" sub={`${o.roNo} · ${o.campaign} · order ${lakh(o.amount)}`} onClose={onClose}>
+      <form className="spf" onSubmit={submit}>
+        <Fld l="Bill number">
+          <input value={f.billNo} required maxLength={40} onChange={(e) => setF({ ...f, billNo: e.target.value })} />
+        </Fld>
+        <Fld l="Bill date">
+          <input type="date" value={f.billDate} required max={isoL(new Date())} onChange={(e) => setF({ ...f, billDate: e.target.value })} />
+        </Fld>
+        <Fld l={`Amount (₹ lakh, up to ${cap.toFixed(2)})`} full>
+          <input type="number" inputMode="decimal" min="0.01" max={cap} step="0.01" required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+        </Fld>
+        {err && <div className="note bad full">{err}</div>}
+        <div className="upacts full">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn pri" disabled={busy}>
+            {busy ? "Submitting…" : "Submit bill"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function PayDialog({ o, onClose }: { o: SpendOrderRow; onClose: () => void }) {
+  const [f, setF] = useState({ paidOn: isoL(new Date()), reference: "" });
+  const { busy, err, run } = useSubmit(onClose);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    run(async () => {
+      const r = await spendApi.pay(o.id, { paidOn: f.paidOn, reference: f.reference.trim() });
+      return { title: "Marked paid", body: `${r.roNo} · ${r.vendorId} · ref ${r.paymentRef}` };
+    });
+  };
+  return (
+    <Dialog title="Mark paid" sub={`${o.roNo} · ${o.vendorId} · bill ${o.billNo ? o.billNo + " for " + lakh(o.billAmount ?? o.amount) : "on record"}`} onClose={onClose}>
+      <form className="spf" onSubmit={submit}>
+        <Fld l="Payment date">
+          <input type="date" value={f.paidOn} required min={o.billDate} max={isoL(new Date())} onChange={(e) => setF({ ...f, paidOn: e.target.value })} />
+        </Fld>
+        <Fld l="Payment reference">
+          <input value={f.reference} required maxLength={60} placeholder="UTR or cheque number" onChange={(e) => setF({ ...f, reference: e.target.value })} />
+        </Fld>
+        {err && <div className="note bad full">{err}</div>}
+        <div className="upacts full">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn pri" disabled={busy}>
+            {busy ? "Saving…" : "Mark paid"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function BudgetDialog({ init, budget, onClose }: { init: { dept?: string; channel?: string; fy?: string }; budget: BudgetRow[]; onClose: () => void }) {
+  const { meta } = useApp();
+  const ref = meta.reference;
+  const [f, setF] = useState({ fy: init.fy || meta.calendar.curFy, department: init.dept || ref.departments[0], channel: init.channel || ref.channels[0], budget: "" });
+  const cur = budget.filter((b) => b.fy === f.fy && b.department === f.department && b.channel === f.channel);
+  const curV = cur.length ? sumA(cur, (b) => b.budget) : null;
+  const deptLines = budget.filter((b) => b.fy === f.fy && b.department === f.department);
+  const { busy, err, setErr, run } = useSubmit(onClose);
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = +f.budget;
+    if (f.budget === "" || !(v >= 0)) return setErr("Enter the new budget in ₹ lakh (0 or more).");
+    run(async () => {
+      await spendApi.setBudget({ fy: f.fy, department: f.department, channel: f.channel, budget: v });
+      return { title: "Budget updated", body: `${f.department} · ${f.channel} · ${f.fy}: ${lakh(v)}` };
+    });
+  };
+  return (
+    <Dialog title="Edit budget" sub="One line per financial year, department and channel" onClose={onClose}>
+      <form className="spf" onSubmit={submit}>
+        <Fld l="Financial year">
+          <select value={f.fy} onChange={(e) => setF({ ...f, fy: e.target.value })}>
+            {meta.calendar.fys.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Fld>
+        <Fld l="Department">
+          <select value={f.department} onChange={(e) => setF({ ...f, department: e.target.value })}>
+            {ref.departments.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Fld>
+        <Fld l="Channel">
+          <select value={f.channel} onChange={(e) => setF({ ...f, channel: e.target.value })}>
+            {ref.channels.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        </Fld>
+        <Fld l={`New budget (₹ lakh) · now ${curV === null ? "not set" : lakh(curV)}`}>
+          <input type="number" inputMode="decimal" min="0" max="100000" step="0.01" required value={f.budget} placeholder={curV === null ? "" : String(curV)} onChange={(e) => setF({ ...f, budget: e.target.value })} />
+        </Fld>
+        {deptLines.length > 0 && (
+          <div className="full spbl">
+            {ref.channels.map((c) => {
+              const v = deptLines.filter((b) => b.channel === c);
+              return (
+                <button type="button" key={c} className={`chip ${c === f.channel ? "ind" : ""}`} onClick={() => setF({ ...f, channel: c })}>
+                  {c}: {v.length ? lakh(sumA(v, (b) => b.budget)) : "—"}
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {err && <div className="note bad full">{err}</div>}
+        <div className="upacts full">
+          <button type="button" className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn pri" disabled={busy}>
+            {busy ? "Saving…" : "Save budget"}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+function OrderPanel({ id, onClose, onAct }: { id: number; onClose: () => void; onAct: (d: Dlg) => void }) {
+  const { user } = useApp();
+  const { data: o, error } = useApi<OrderDetail>(`/spend/orders/${id}`);
+  const dl: [string, React.ReactNode][] = o
+    ? [
+        ["Status", <span key="s" className={`chip ${toneOf(o.status === "RO issued" ? "Pending" : o.status)}`}>{statusLabel(o.status)}</span>],
+        ["Campaign", `${o.campaignId} · ${o.campaign}`],
+        ["Type", o.ctype],
+        ["Department", o.department],
+        ["Vendor", o.vendor],
+        ["Channel", o.channel],
+        ["District", o.district],
+        ["Month", `${dShow(o.month)} · ${o.fy} ${o.quarter}`],
+        ["Order amount", lakh(o.amount)],
+        ["Bill", o.billNo ? `${o.billNo} · ${lakh(o.billAmount ?? 0)} · ${dShow(o.billDate)}` : "—"],
+        ["Payment", o.paidOn ? `${dShow(o.paidOn)} · ref ${o.paymentRef}` : "—"],
+      ]
+    : [];
+  return (
+    <Dialog title={o ? o.roNo : "Release order"} sub={o ? `${o.vendorId} · ${o.campaign}` : undefined} onClose={onClose} wide>
+      {error ? (
+        <ErrorNote msg={error} />
+      ) : !o ? (
+        <Loading what="release order" />
+      ) : (
+        <>
+          <dl className="spdl">
+            {dl.map(([k, v]) => (
+              <div key={k}>
+                <dt>{k}</dt>
+                <dd>{v}</dd>
+              </div>
+            ))}
+          </dl>
+          <h4 className="sph">History</h4>
+          {o.history.length ? (
+            <ol className="sphist">
+              {o.history.map((h, i) => (
+                <li key={i}>
+                  <b>{h.action}</b> <span className="mut">· {h.by} · {new Date(h.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</span>
+                  <br />
+                  {h.note}
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="cap">This order came in with the sample data or an upload, so it has no history in Vaarta 360. Status: {statusLabel(o.status)}.</p>
+          )}
+          <div className="upacts">
+            {canBill(user, o) && (
+              <button className="btn pri" onClick={() => onAct({ k: "bill", o })}>
+                Submit bill
+              </button>
+            )}
+            {canPay(user) && o.status === "Billed" && (
+              <button className="btn pri" onClick={() => onAct({ k: "pay", o })}>
+                Mark paid
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+const ST_FILTERS = [
+  ["All", "All"],
+  ["RO issued", "To be billed"],
+  ["Billed", "Billed"],
+  ["Paid", "Paid"],
+] as const;
+
+function OrdersCard({ rows, onOpen, onAct }: { rows: SpendOrderRow[]; onOpen: (id: number) => void; onAct: (d: Dlg) => void }) {
+  const { user } = useApp();
+  const [st, setSt] = useState<string>(canPay(user) ? "Billed" : "All");
+  const [n, setN] = useState(10);
+  const list = rows
+    .filter((r) => st === "All" || r.status === st)
+    .sort((a, b) => b.month.localeCompare(a.month) || b.id - a.id);
+  const pay = canPay(user);
+  return (
+    <div className="card s12">
+      <div className="ch">
+        <div>
+          <h3>Release orders</h3>
+          <p>In this selection, latest first · select an order to see its bill, payment and history</p>
+        </div>
+        <div className="seg">
+          {ST_FILTERS.map(([k, l]) => (
+            <button key={k} aria-pressed={st === k} onClick={() => setSt(k)}>
+              {l} · {nIN(k === "All" ? rows.length : rows.filter((r) => r.status === k).length)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {list.length ? (
+        <div className="tbw">
+          <table className="tb tight">
+            <thead>
+              <tr>
+                <th>RO number</th>
+                <th>Month</th>
+                <th>Campaign</th>
+                <th>Vendor</th>
+                <th>District</th>
+                <th className="r">Amount</th>
+                <th>Status</th>
+                {pay && <th />}
+              </tr>
+            </thead>
+            <tbody>
+              {list.slice(0, n).map((r) => (
+                <tr key={r.id} className="click" onClick={() => onOpen(r.id)}>
+                  <td className="num">
+                    <span className="nm">{r.roNo}</span>
+                  </td>
+                  <td>{dShow(r.month)}</td>
+                  <td>
+                    {r.campaign}
+                    <br />
+                    <small className="mut">{r.department}</small>
+                  </td>
+                  <td>{r.vendorId}</td>
+                  <td>{r.district}</td>
+                  <td className="r">{lakh(r.amount)}</td>
+                  <td>
+                    <span className={`chip ${toneOf(r.status === "RO issued" ? "Pending" : r.status)}`}>{statusLabel(r.status)}</span>
+                  </td>
+                  {pay && (
+                    <td className="r">
+                      {r.status === "Billed" && (
+                        <button
+                          className="btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAct({ k: "pay", o: r });
+                          }}
+                        >
+                          Mark paid
+                        </button>
+                      )}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty">No release orders with this status in the selection.</div>
+      )}
+      {list.length > n && (
+        <button className="btn more" onClick={() => setN(n + 30)}>
+          Show 30 more
+        </button>
+      )}
+    </div>
   );
 }

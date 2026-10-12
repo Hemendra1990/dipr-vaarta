@@ -23,4 +23,15 @@ public class SpendOrder {
     public double amount;
     public String status;
     public Long uploadId;
+
+    // Workflow fields. Seeded and uploaded rows leave these empty.
+    @Column(length = 60) public String issuedBy;
+    @Column(length = 10) public String issuedOn;
+    @Column(length = 40) public String billNo;
+    public Double billAmount;
+    @Column(length = 10) public String billDate;
+    @Column(length = 10) public String paidOn;
+    @Column(length = 60) public String paymentRef;
+    /** JSON array of {at, by, action, note}, newest last. */
+    @Column(length = 8000) public String history;
 }

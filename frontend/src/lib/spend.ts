@@ -1,6 +1,7 @@
 // Spend analytics model, ported from the prototype: filters, period roll-ups, budget comparison and insights.
 import { MON, sumA } from "./format";
-import type { BudgetRow, CalendarInfo, SpendRow } from "./types";
+import { api, ApiError, token } from "./api";
+import type { BudgetRow, CalendarInfo, SpendRow, User } from "./types";
 import type { Period } from "@/components/charts";
 
 export type SpState = {
@@ -138,3 +139,71 @@ export class SpendModel {
     return out.slice(0, 4);
   }
 }
+
+// ---- Release-order workflow: issue → bill (vendor) → pay (accounts), and budget edits ----
+
+export type SpendOrderRow = SpendRow & {
+  id: number; billNo?: string; billAmount?: number; billDate?: string; paidOn?: string; paymentRef?: string; issuedBy?: string; issuedOn?: string;
+};
+export type OrderEvent = { at: string; by: string; action: string; note: string };
+export type OrderDetail = SpendOrderRow & { history: OrderEvent[] };
+
+/** Bills may exceed the release order by this share (taxes, rounding). Mirrors the server rule. */
+export const BILL_TOLERANCE = 0.05;
+export const billCap = (amount: number) => Math.round(amount * (1 + BILL_TOLERANCE) * 100) / 100;
+
+/** Who may do what. The server enforces the same rules. */
+export const canIssue = (u: User) => u.role === "COMMISSIONER" || u.role === "DD_ACCOUNTS" || u.role === "DIO";
+export const canPay = (u: User) => u.role === "COMMISSIONER" || u.role === "DD_ACCOUNTS";
+export const canEditBudget = canPay;
+export const canBill = (u: User, r: SpendRow) => u.role === "VENDOR" && !!u.vendorId && r.vendorId === u.vendorId && r.status === "RO issued";
+
+export const statusLabel = (s: string) => (s === "RO issued" ? "To be billed" : s);
+
+export type IssueInput = {
+  campaignId: string; campaign: string; ctype: string; department: string; channel: string; vendorId: string; district: string; month: string; amount: number;
+};
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const t = token.get();
+  const res = await fetch("/api" + path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...(t ? { Authorization: "Bearer " + t } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    let msg = res.statusText || "Request failed";
+    try {
+      msg = (await res.json()).message || msg;
+    } catch {
+      /* not JSON */
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return (await res.json()) as T;
+}
+
+export const spendApi = {
+  issue: (b: IssueInput) => api.post<OrderDetail>("/spend/orders", b),
+  bill: (id: number, b: { billNo: string; amount: number; billDate: string }) => api.post<OrderDetail>(`/spend/orders/${id}/bill`, b),
+  pay: (id: number, b: { paidOn: string; reference: string }) => api.post<OrderDetail>(`/spend/orders/${id}/pay`, b),
+  setBudget: (b: { fy: string; department: string; channel: string; budget: number }) => put<BudgetRow>("/spend/budget", b),
+};
+
+/** Next campaign id in the seed pattern CMP-<yy><3-digit serial>, for the FY of the given month. */
+export function nextCampaignId(rows: SpendRow[], fy: string): string {
+  const yy = fy.slice(2, 4);
+  let max = 0;
+  rows.forEach((r) => {
+    const m = /^CMP-(\d{2})(\d{3,})$/.exec(r.campaignId);
+    if (m && m[1] === yy) max = Math.max(max, +m[2]);
+  });
+  return "CMP-" + yy + String(max + 1).padStart(3, "0");
+}
+
+export const fyOfMonth = (ym: string) => {
+  const y = +ym.slice(0, 4),
+    m = +ym.slice(5, 7);
+  const s = m >= 4 ? y : y - 1;
+  return s + "-" + String((s + 1) % 100).padStart(2, "0");
+};
