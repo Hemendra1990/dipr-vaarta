@@ -37,7 +37,7 @@ public enum Role {
     public static final class Modules {
         public static final List<String> ALL = List.of("overview", "ai", "tipline", "media", "social", "crisis", "spend", "campaigns",
                 "empanel", "bills", "ads", "press", "welfare", "events", "election", "offices", "field", "outdoor", "film",
-                "publications", "archive", "grants", "admin", "rti", "upload");
+                "publications", "archive", "grants", "admin", "rti", "upload", "users", "audit");
         private Modules() {}
     }
 }
