@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import gov.dipr.vaarta.domain.BudgetLine;
 import gov.dipr.vaarta.domain.RegisterRecord;
 import gov.dipr.vaarta.domain.SpendOrder;
+import gov.dipr.vaarta.reference.RegisterDef;
+import gov.dipr.vaarta.reference.ReferenceData;
 import org.springframework.stereotype.Component;
 
 import java.time.YearMonth;
@@ -16,8 +18,18 @@ import java.util.Map;
 @Component
 public class RecordMapper {
     private final ObjectMapper om;
+    private final ReferenceData ref;
 
-    public RecordMapper(ObjectMapper om) { this.om = om; }
+    public RecordMapper(ObjectMapper om, ReferenceData ref) { this.om = om; this.ref = ref; }
+
+    /**
+     * The taluk as spelt in the reference list when it belongs to the district; null when empty, statewide or not a
+     * taluk of that district (a stale taluk left behind after the district was changed is dropped, not kept).
+     */
+    private String taluk(Object district, Object taluk) {
+        if (district == null || taluk == null || "".equals(taluk)) return null;
+        return ref.talukOf(district.toString(), taluk.toString());
+    }
 
     private static String s(Object o) { return o == null || "".equals(o) ? null : o.toString(); }
 
@@ -32,6 +44,7 @@ public class RecordMapper {
         o.campaignId = s(m.get("campaignId")); o.campaign = s(m.get("campaign")); o.ctype = s(m.get("ctype"));
         o.department = s(m.get("department")); o.channel = s(m.get("channel")); o.vendorId = s(m.get("vendorId"));
         o.vendor = s(m.get("vendor")); o.district = s(m.get("district")); o.amount = d(m.get("amount")); o.status = s(m.get("status"));
+        o.taluk = taluk(o.district, m.get("taluk"));
         return o;
     }
 
@@ -39,7 +52,7 @@ public class RecordMapper {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("roNo", o.roNo); m.put("fy", o.fy); m.put("month", o.month); m.put("quarter", o.quarter); m.put("campaignId", o.campaignId);
         m.put("campaign", o.campaign); m.put("ctype", o.ctype); m.put("department", o.department); m.put("channel", o.channel);
-        m.put("vendorId", o.vendorId); m.put("vendor", o.vendor); m.put("district", o.district); m.put("amount", o.amount); m.put("status", o.status);
+        m.put("vendorId", o.vendorId); m.put("vendor", o.vendor); m.put("district", o.district); m.put("taluk", o.taluk); m.put("amount", o.amount); m.put("status", o.status);
         return m;
     }
 
@@ -59,6 +72,16 @@ public class RecordMapper {
             dist = "Statewide";
         }
         r.district = dist.toString();
+        // Seed-only marker for rows added to fill drill-down gaps; never stored or shown.
+        row.remove("supplementary");
+        Object tk = row.get("taluk");
+        if (tk != null) {
+            String t = taluk(r.district, tk);
+            if (t != null) row.put("taluk", t);
+            else if (hasTalukField(registerId) && !"".equals(tk))
+                throw new IllegalArgumentException(tk + " is not a taluk of " + r.district + ".");
+            else if (!hasTalukField(registerId)) row.remove("taluk");
+        }
         r.department = s(row.get("department"));
         r.vendorId = s(row.get("vendorId"));
         r.uploadId = uploadId;
@@ -68,6 +91,10 @@ public class RecordMapper {
             throw new IllegalStateException(e);
         }
         return r;
+    }
+
+    private boolean hasTalukField(String registerId) {
+        return ref.register(registerId).map(RegisterDef::schema).orElse(java.util.List.of()).stream().anyMatch(f -> f.k().equals("taluk"));
     }
 
     /** The stored row, plus its database id as {@code _id} so the API can address it for edits. */

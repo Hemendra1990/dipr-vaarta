@@ -119,7 +119,7 @@ public class SampleDataLoader implements ApplicationRunner {
         for (Map<String, Object> m : cl) {
             Claim c = new Claim();
             c.id = (String) m.get("id"); c.text = (String) m.get("text"); c.lang = (String) m.get("lang");
-            c.district = (String) m.get("dist"); c.category = (String) m.get("cat"); c.status = (String) m.get("status");
+            c.district = (String) m.get("dist"); c.taluk = (String) m.get("taluk"); c.category = (String) m.get("cat"); c.status = (String) m.get("status");
             c.verdict = (String) m.get("verdict"); c.forwards = ((Number) m.get("fw")).intValue(); c.source = (String) m.get("src");
             c.receivedAt = now.minus(Math.round(((Number) m.get("ageHours")).doubleValue() * 60), ChronoUnit.MINUTES);
             c.updatedAt = c.receivedAt;
@@ -130,17 +130,18 @@ public class SampleDataLoader implements ApplicationRunner {
         for (int i = 0; i < rl.size(); i++) {
             Map<String, Object> m = rl.get(i);
             PressRelease p = new PressRelease();
-            p.id = (String) m.get("id"); p.title = (String) m.get("title"); p.dept = (String) m.get("dept"); p.district = (String) m.get("dist");
+            p.id = (String) m.get("id"); p.title = (String) m.get("title"); p.dept = (String) m.get("dept"); p.district = (String) m.get("dist"); p.taluk = (String) m.get("taluk");
             p.hoursAfterEvent = ((Number) m.get("h")).doubleValue(); p.reach = ((Number) m.get("reach")).intValue();
             p.kits = ((Number) m.get("kits")).intValue(); p.pickup = ((Number) m.get("pick")).intValue();
-            p.issuedAt = now.minus(6L * (i + 1), ChronoUnit.HOURS);
+            // Prototype releases are 6 hours apart, newest first; supplementary ones carry their own age.
+            p.issuedAt = m.get("ageHours") instanceof Number h ? now.minus(h.longValue(), ChronoUnit.HOURS) : now.minus(6L * (i + 1), ChronoUnit.HOURS);
             releases.save(p);
         }
 
         List<Map<String, Object>> fd = read("feed.json", new TypeReference<>() {});
         for (Map<String, Object> m : fd) {
             FeedItem f = new FeedItem();
-            f.type = (String) m.get("t"); f.district = (String) m.get("dist"); f.scheme = (String) m.get("scheme");
+            f.type = (String) m.get("t"); f.district = (String) m.get("dist"); f.taluk = (String) m.get("taluk"); f.scheme = (String) m.get("scheme");
             f.sentiment = (String) m.get("sent"); f.note = (String) m.get("note"); f.author = "DIO, " + f.district;
             f.createdAt = now.minus(((Number) m.get("ageHours")).longValue(), ChronoUnit.HOURS);
             feed.save(f);
@@ -150,7 +151,7 @@ public class SampleDataLoader implements ApplicationRunner {
         for (Map<String, Object> m : af) {
             AdFlag a = new AdFlag();
             a.ro = (String) m.get("ro"); a.publication = (String) m.get("pub"); a.issue = (String) m.get("issue");
-            a.amount = ((Number) m.get("amt")).doubleValue(); a.district = (String) m.get("dist"); a.severity = (String) m.get("sev");
+            a.amount = ((Number) m.get("amt")).doubleValue(); a.district = (String) m.get("dist"); a.taluk = (String) m.get("taluk"); a.severity = (String) m.get("sev");
             a.reviewStatus = "Flagged";
             flags.save(a);
         }
