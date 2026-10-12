@@ -174,7 +174,7 @@ export function BarList({ items, max }: { items: BarItem[]; max?: number }) {
   return (
     <div className="hb">
       {items.map((i) => (
-        <button key={i.l} className={`r rbtn ${i.on ? "on" : ""}`} onClick={i.onClick}>
+        <button key={i.l} className={`r rbtn ${i.on ? "on" : ""}`} onClick={i.onClick} disabled={!i.onClick}>
           <span title={i.l}>{i.l}</span>
           <span className="t">
             <i style={{ width: `${((i.v / mx) * 100).toFixed(1)}%`, ...(i.col ? { background: i.col } : {}) }} />

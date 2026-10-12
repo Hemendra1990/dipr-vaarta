@@ -592,3 +592,4 @@ tr.adf-form td{background:var(--surface-2)}
 /* Command area: keyboard focus on scatter points */
 .chart .hx:focus{outline:none}
 .chart .hx:focus-visible circle,.chart .hx:hover circle{stroke:var(--ink);stroke-width:2}
+.rbtn:disabled{cursor:default;opacity:.6}

@@ -70,7 +70,8 @@ export function RegisterView({ def }: { def: RegisterDef }) {
     .map((ch) => ({ l: label(ch), v: all.filter((r) => placeOk(geo, tagged, r, ch)).length, ch }))
     .sort((a, b) => b.v - a.v)
     .slice(0, 10)
-    .map((x) => ({ l: x.l, v: x.v, d: nIN(x.v), onClick: () => drillTo({ lvl: x.ch.lvl, name: x.ch.name }) }));
+    // an area with no records in this register is listed but not drillable, so no level opens empty
+    .map((x) => ({ l: x.l, v: x.v, d: nIN(x.v), onClick: x.v > 0 ? () => drillTo({ lvl: x.ch.lvl, name: x.ch.name }) : undefined }));
   const sw = node.lvl !== "state" && !def.geoAll ? (user.district ? swCount : rows.filter((r) => r.district === "Statewide").length) : 0;
   const src = live.sources?.[def.id];
 
