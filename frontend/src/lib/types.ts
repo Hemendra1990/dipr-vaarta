@@ -61,3 +61,9 @@ export type AgentRun = {
   id: number; agentId: string; name: string; target: string | null; status: string; steps: string[]; output: string;
   approveLabel: string; startedBy: string; decidedBy: string | null; toast?: { title: string; body: string };
 };
+
+/** Press office: a release with its draft/issue trail (GET /api/press/releases). */
+export type PressRelease = Release & {
+  status: "Draft" | "Issued"; issuedAt: string | null; language: string | null; body: string | null;
+  draftedBy: string | null; draftedAt: string | null; approvedBy: string | null;
+};
