@@ -4,13 +4,18 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import gov.dipr.vaarta.domain.*;
+import gov.dipr.vaarta.reference.ReferenceData;
 import gov.dipr.vaarta.repo.*;
 import gov.dipr.vaarta.security.CurrentUser;
+import gov.dipr.vaarta.security.Role;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.util.HtmlUtils;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -30,6 +35,36 @@ public class AgentService {
             new AgentInfo("query", "Citizen Query Agent", "Answers scheme questions on WhatsApp in Kannada text and voice, and opens a grievance when needed.", "Answers from approved department FAQs only. Hands off to a person when unsure."),
             new AgentInfo("spend", "Spend Forecaster", "Projects year-end spend by channel and department, and suggests where to move budget.", "Suggests only. Re-appropriation needs Finance Department approval."));
 
+    /** The module whose data an agent reads and whose records its approval changes: needed to run and approve it. */
+    static final Map<String, String> MODULE = Map.of("press", "press", "triage", "tipline", "monitor", "media", "planner", "overview",
+            "adaudit", "ads", "query", "tipline", "spend", "spend");
+    private static final Map<String, String> MODULE_LABEL = Map.of("press", "Press & journalists", "tipline", "Tipline & claims",
+            "media", "Media monitoring", "overview", "Command overview", "ads", "Release-order audit", "spend", "Spend analytics");
+
+    /** An agent card for this user: whether they may run it and approve its output, and why not. */
+    public record AgentAccess(String id, String name, String does, String guard, boolean canRun, boolean canApprove, String note) {}
+
+    public static boolean canRun(CurrentUser u, String agentId) {
+        return u.can("ai") && MODULE.containsKey(agentId) && u.can(MODULE.get(agentId));
+    }
+
+    /** Press releases are issued only by the Commissioner and the Joint Director (News), as in the press office. */
+    public static boolean canApprove(CurrentUser u, String agentId) {
+        if (!canRun(u, agentId)) return false;
+        if (agentId.equals("press")) return u.role() == Role.COMMISSIONER || u.role() == Role.JD_NEWS;
+        return true;
+    }
+
+    public List<AgentAccess> cards(CurrentUser u) {
+        u.require("ai");
+        return AGENTS.stream().map(a -> {
+            boolean run = canRun(u, a.id()), ok = canApprove(u, a.id());
+            String note = !run ? "Needs access to " + MODULE_LABEL.get(MODULE.get(a.id())) + "."
+                    : !ok ? "You can run it; the Commissioner or Joint Director (News) approves." : null;
+            return new AgentAccess(a.id(), a.name(), a.does(), a.guard(), run, ok, note);
+        }).toList();
+    }
+
     private final AgentRunRepo runs;
     private final ClaimRepo claims;
     private final AdFlagRepo flags;
@@ -39,11 +74,26 @@ public class AgentService {
     private final Calendar cal;
     private final AuditService audit;
     private final ObjectMapper om;
+    private final RegisterRecordRepo records;
+    private final RecordMapper mapper;
+    private final ReferenceData ref;
 
     public AgentService(AgentRunRepo runs, ClaimRepo claims, AdFlagRepo flags, PressReleaseRepo releases, SpendOrderRepo spend,
-                        BudgetLineRepo budget, Calendar cal, AuditService audit, ObjectMapper om) {
+                        BudgetLineRepo budget, Calendar cal, AuditService audit, ObjectMapper om, RegisterRecordRepo records,
+                        RecordMapper mapper, ReferenceData ref) {
         this.runs = runs; this.claims = claims; this.flags = flags; this.releases = releases; this.spend = spend; this.budget = budget;
-        this.cal = cal; this.audit = audit; this.om = om;
+        this.cal = cal; this.audit = audit; this.om = om; this.records = records; this.mapper = mapper; this.ref = ref;
+    }
+
+    private void requireRun(CurrentUser u, String agentId) {
+        u.require("ai");
+        if (!canRun(u, agentId))
+            throw new CurrentUser.AccessDeniedException("This agent needs access to " + MODULE_LABEL.get(MODULE.get(agentId)) + ".");
+    }
+
+    private List<Claim> newClaims(CurrentUser u) {
+        return claims.findAll().stream().filter(c -> "New".equals(c.status) && u.districtOk(c.district))
+                .sorted(Comparator.comparing((Claim c) -> c.receivedAt == null ? Instant.EPOCH : c.receivedAt)).toList();
     }
 
     private static String e(Object o) { return HtmlUtils.htmlEscape(String.valueOf(o)); }
@@ -70,6 +120,8 @@ public class AgentService {
     @Transactional
     public Map<String, Object> run(CurrentUser u, String agentId, String target, Map<String, Object> ctx) {
         u.require("ai");
+        if (!MODULE.containsKey(agentId)) throw new NoSuchElementException("No agent " + agentId);
+        requireRun(u, agentId);
         AgentInfo info = AGENTS.stream().filter(a -> a.id().equals(agentId)).findFirst()
                 .orElseThrow(() -> new NoSuchElementException("No agent " + agentId));
         if (ctx == null) ctx = Map.of();
@@ -77,6 +129,10 @@ public class AgentService {
         String out, approve;
         String area = String.valueOf(ctx.getOrDefault("areaLabel", "Karnataka"));
         String low = String.valueOf(ctx.getOrDefault("lowLabel", area));
+        if (area.length() > 120) area = area.substring(0, 120);
+        if (low.length() > 120) low = low.substring(0, 120);
+        if (target != null && target.length() > 120) target = target.substring(0, 120);
+        String targetDistrict = null;
         switch (agentId) {
             case "press" -> {
                 steps = List.of("Reading field notes from DIO Raichur: 4 photos, 2 voice notes", "Transcribing Kannada voice notes",
@@ -86,7 +142,7 @@ public class AgentService {
                 approve = "Approve and send to journalists";
             }
             case "triage" -> {
-                long newC = claims.findAll().stream().filter(c -> "New".equals(c.status)).count();
+                long newC = newClaims(u).size();
                 steps = List.of("Pulling " + newC + " new claims from the tipline queue", "Grouping by narrative (text and image similarity)",
                         "Matching against 1,284 published clarifications", "Looking up source circulars in the e-Office archive",
                         "Routing public-safety items to district administration");
@@ -114,6 +170,8 @@ public class AgentService {
                         + "</td></tr></tbody></table></div><p style=\"margin:8px 0 0;color:var(--muted);font-size:12.5px\">10% of subscribers held back as a control so the lift can be measured.</p>";
                 approve = "Schedule the test";
                 target = tgt;
+                Object td = ctx.get("targetDistrict");
+                if (td != null && ref.isDistrict(td.toString())) targetDistrict = td.toString();
             }
             case "adaudit" -> {
                 List<AdFlag> fl = flags.findAll();
@@ -147,8 +205,11 @@ public class AgentService {
             }
             default -> throw new NoSuchElementException("No agent " + agentId);
         }
+        // "Run again": an earlier run of the same agent by this officer that was never decided is set aside.
+        runs.findAll().stream().filter(x -> agentId.equals(x.agentId) && "Needs approval".equals(x.status) && u.displayName().equals(x.startedBy))
+                .forEach(x -> { x.status = "Superseded"; x.decidedAt = Instant.now(); });
         AgentRun r = new AgentRun();
-        r.agentId = agentId; r.target = target; r.status = "Needs approval"; r.approveLabel = approve; r.output = out;
+        r.agentId = agentId; r.target = target; r.area = area; r.targetDistrict = targetDistrict; r.status = "Needs approval"; r.approveLabel = approve; r.output = out;
         r.startedBy = u.displayName(); r.startedAt = Instant.now();
         try {
             r.steps = om.writeValueAsString(steps);
@@ -164,6 +225,9 @@ public class AgentService {
     public Map<String, Object> approve(CurrentUser u, long runId) {
         u.require("ai");
         AgentRun r = runs.findById(runId).orElseThrow(() -> new NoSuchElementException("No run " + runId));
+        requireRun(u, r.agentId);
+        if (!canApprove(u, r.agentId))
+            throw new CurrentUser.AccessDeniedException("Only the Commissioner or the Joint Director (News) can approve this.");
         if (!"Needs approval".equals(r.status)) throw new IllegalArgumentException("This run was already decided.");
         String msg;
         switch (r.agentId) {
@@ -178,37 +242,109 @@ public class AgentService {
                 p.draftedBy = "Press Release Composer (AI agent), run by " + r.startedBy; p.draftedAt = r.startedAt;
                 p.approvedBy = u.displayName();
                 releases.save(p);
+                audit.record(u, "press.issue", p.id + " (Press Release Composer)");
+                r.sentTo = "58 Raichur-accredited journalists";
+                r.effect = p.id + " issued: " + p.title;
                 msg = "Release sent|" + p.id + " queued to 58 Raichur-accredited journalists on WhatsApp.";
             }
             case "triage" -> {
-                claims.findAll().stream().filter(c -> "New".equals(c.status)).forEach(c -> { c.status = "Triaged"; c.updatedAt = Instant.now(); });
-                msg = "Queue updated|New claims moved to Triaged.";
+                List<Claim> moved = newClaims(u);
+                moved.forEach(c -> {
+                    c.status = "Triaged"; c.updatedAt = Instant.now();
+                    audit.record(u, "claim.Triaged", c.id + " (Claim Triage agent)");
+                });
+                r.effect = moved.isEmpty() ? "No new claims were waiting."
+                        : moved.size() + (moved.size() == 1 ? " claim" : " claims") + " moved to Triaged: "
+                          + String.join(", ", moved.stream().map(c -> c.id).toList());
+                msg = moved.isEmpty() ? "Queue updated|No new claims were waiting." : "Queue updated|" + moved.size() + " new "
+                        + (moved.size() == 1 ? "claim" : "claims") + " moved to Triaged.";
             }
-            case "monitor" -> msg = "Brief sent|Delivered to the Minister's and Secretary's WhatsApp at 7:00 AM.";
-            case "planner" -> msg = "Campaign scheduled|Two-week test for " + r.target + " starts tomorrow 7:30 AM.";
-            case "adaudit" -> msg = "Report sent|Audit summary sent to the Commissioner for review.";
-            case "query" -> msg = "Request sent|Energy department asked for an approved FAQ answer.";
-            case "spend" -> msg = "Forecast sent|The year-end forecast was sent to the Commissioner.";
+            case "monitor" -> {
+                r.sentTo = "Minister's office and Secretary";
+                r.effect = "7 AM brief for " + r.area + " delivered on WhatsApp.";
+                msg = "Brief sent|Delivered to the Minister's and Secretary's WhatsApp at 7:00 AM.";
+            }
+            case "planner" -> {
+                String id = scheduleTest(r);
+                r.sentTo = "Publicity campaigns register";
+                r.effect = id + " added to Publicity campaigns: two-week test for " + r.target + " from " + startDate().format(DateTimeFormatter.ofPattern("d MMM yyyy")) + ".";
+                msg = "Campaign scheduled|Two-week test for " + r.target + " starts tomorrow 7:30 AM. Added to Campaigns as " + id + ".";
+            }
+            case "adaudit" -> {
+                List<AdFlag> fl = flags.findAll();
+                r.sentTo = "Commissioner";
+                r.effect = fl.size() + " flagged orders (" + lakh(fl.stream().mapToDouble(f -> f.amount).sum()) + ") in the audit summary.";
+                msg = "Report sent|Audit summary sent to the Commissioner for review.";
+            }
+            case "query" -> {
+                r.sentTo = "Energy department";
+                r.effect = "Approved FAQ answer requested: Gruha Jyothi charges after moving house.";
+                msg = "Request sent|Energy department asked for an approved FAQ answer.";
+            }
+            case "spend" -> {
+                r.sentTo = "Commissioner";
+                r.effect = "Year-end forecast for " + cal.currentFy() + " sent.";
+                msg = "Forecast sent|The year-end forecast was sent to the Commissioner.";
+            }
             default -> msg = "Approved|";
         }
         r.status = "Approved"; r.decidedBy = u.displayName(); r.decidedAt = Instant.now();
-        audit.record(u, "agent.approve", r.agentId + " #" + r.id);
+        audit.record(u, "agent.approve", r.agentId + " #" + r.id + (r.effect == null ? "" : " · " + r.effect));
         return dto(r, info(r.agentId), msg);
+    }
+
+    private LocalDate startDate() { return cal.asOf().plusDays(1); }
+
+    /** The Campaign Planner's approved test becomes a DIPR campaign in the Publicity campaigns register. */
+    private String scheduleTest(AgentRun r) {
+        int max = records.findScoped("campaigns", null, null, null).stream()
+                .map(x -> String.valueOf(mapper.fromRecord(x).get("campaignId")))
+                .filter(v -> v.matches("CMP-\\d+")).mapToInt(v -> Integer.parseInt(v.substring(4))).max().orElse(26000);
+        String id = "CMP-" + (max + 1);
+        LocalDate start = startDate(), end = start.plusDays(13);
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("campaignId", id);
+        row.put("campaign", "Read-rate recovery test · " + r.target);
+        row.put("ctype", "Guarantee schemes awareness");
+        row.put("department", "DIPR (own campaigns)");
+        row.put("fy", Calendar.fyOf(YearMonth.from(start)));
+        row.put("start", start.toString());
+        row.put("end", end.toString());
+        row.put("stage", "Creative in design");
+        row.put("budget", 0.0);
+        row.put("spent", 0.0);
+        row.put("reach", 0.0);
+        row.put("district", r.targetDistrict == null ? "Statewide" : r.targetDistrict);
+        records.save(mapper.toRecord("campaigns", row, null));
+        return id;
     }
 
     @Transactional
     public Map<String, Object> reject(CurrentUser u, long runId, String comment) {
         u.require("ai");
         AgentRun r = runs.findById(runId).orElseThrow(() -> new NoSuchElementException("No run " + runId));
+        requireRun(u, r.agentId);
+        if (comment == null || comment.isBlank()) throw new IllegalArgumentException("Write what the agent should change.");
+        comment = comment.trim();
+        if (comment.length() > 1000) throw new IllegalArgumentException("Keep comments under 1,000 characters.");
         if (!"Needs approval".equals(r.status)) throw new IllegalArgumentException("This run was already decided.");
         r.status = "Sent back"; r.decidedBy = u.displayName(); r.decidedAt = Instant.now(); r.comment = comment;
-        audit.record(u, "agent.reject", r.agentId + " #" + r.id);
+        audit.record(u, "agent.reject", r.agentId + " #" + r.id + " · " + comment);
         return dto(r, info(r.agentId), "Sent back|The agent will revise using your comments.");
     }
 
+    /** Recent runs of the agents this user may run, newest first. */
     public List<Map<String, Object>> recent(CurrentUser u) {
         u.require("ai");
-        return runs.findTop20ByOrderByStartedAtDesc().stream().map(r -> dto(r, info(r.agentId), null)).toList();
+        return runs.findTop50ByOrderByStartedAtDesc().stream().filter(r -> canRun(u, r.agentId)).limit(20)
+                .map(r -> dto(r, info(r.agentId), null)).toList();
+    }
+
+    /** Approved agent output addressed to the Commissioner (audit summaries, spend forecasts). */
+    public List<Map<String, Object>> inbox(CurrentUser u) {
+        u.requireRole(Role.COMMISSIONER);
+        return runs.findBySentToAndStatusOrderByDecidedAtDesc("Commissioner", "Approved").stream().limit(20)
+                .map(r -> dto(r, info(r.agentId), null)).toList();
     }
 
     private AgentInfo info(String id) {
@@ -225,6 +361,7 @@ public class AgentService {
         }
         m.put("output", r.output); m.put("approveLabel", r.approveLabel); m.put("startedBy", r.startedBy); m.put("startedAt", r.startedAt);
         m.put("decidedBy", r.decidedBy); m.put("decidedAt", r.decidedAt); m.put("comment", r.comment);
+        m.put("area", r.area); m.put("sentTo", r.sentTo); m.put("effect", r.effect);
         if (message != null) {
             String[] p = message.split("\\|", 2);
             m.put("toast", Map.of("title", p[0], "body", p.length > 1 ? p[1] : ""));
