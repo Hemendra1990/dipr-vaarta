@@ -550,3 +550,22 @@ code.hdrs{display:block;margin-top:6px;white-space:pre-wrap;user-select:all}
 .sph{margin:8px 0 6px;font-size:13px}
 .sphist{margin:0 0 12px;padding-left:18px;font-size:13px;display:flex;flex-direction:column;gap:8px}
 @media (max-width:560px){.spf,.spdl{grid-template-columns:1fr}}
+
+/* Outreach audit (round 2): release-order review outcome, feed filters and resolution, HQ tasks */
+.adf-st{display:grid;gap:4px;justify-items:start;min-width:170px}
+.adf-by{color:var(--muted);font-size:11.5px;line-height:1.35}
+.adf-acts{display:flex;flex-wrap:wrap;gap:10px;margin-top:2px}
+.adf-acts .linkbtn{font-size:12.5px}
+tr.adf-form td{background:var(--surface-2)}
+.feed .fd-res{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:6px}
+.feed .fd-res .nc-in{flex:1 1 200px}
+.leafq li.done span:first-child{text-decoration:line-through;color:var(--muted)}
+.leafq .tk-acts{display:flex;gap:8px;align-items:center;white-space:nowrap}
+.tk-form{display:grid;gap:8px;margin-top:10px}
+.tk-form .row{display:flex;gap:8px;flex-wrap:wrap}
+.tk-form .row .nc-in{flex:1 1 140px}
+.leafq .tk-due{font:600 12px var(--f-mono);color:var(--muted)}
+.clm-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.clm-more{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px}
+.clm-more .linkbtn{font-size:12px}
+.clm-open{display:block}

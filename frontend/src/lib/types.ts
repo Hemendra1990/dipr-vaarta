@@ -86,3 +86,11 @@ export type UserOptions = {
 export type AuditRow = { id: number; username: string; action: string; detail: string | null; at: string };
 export type AuditPage = { items: AuditRow[]; total: number; page: number; size: number; pages: number };
 export type AuditFacets = { users: string[]; actions: string[]; groups: string[] };
+
+// Outreach audit (round 2): ad-flag review outcome, escalation resolution, HQ tasks
+export type AdFlagReview = AdFlag & { sentAt?: string | null; outcomeNote?: string | null; decidedBy?: string | null; decidedAt?: string | null };
+export type FeedResolvable = FeedEntry & { resolvedBy?: string | null; resolvedAt?: string | null; resolution?: string | null };
+export type OfficeTask = {
+  id: number; district: string; title: string; due: string; status: "Open" | "Done"; assignedBy: string; assignedAt: string;
+  doneBy: string | null; doneAt: string | null; doneNote: string | null;
+};

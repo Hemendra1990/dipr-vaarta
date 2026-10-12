@@ -10,8 +10,8 @@ import { isFresh } from "@/lib/updates";
 import { KidTable } from "./KidTable";
 import { ErrorNote, Loading } from "./common";
 
-const CL_ORDER = ["New", "Triaged", "Draft ready", "Published", "Escalated"];
-const TONE: Record<string, string> = { New: "ind", Triaged: "", "Draft ready": "warn", Published: "good", Escalated: "crit" };
+const CL_ORDER = ["New", "Triaged", "Draft ready", "Published", "Escalated", "Closed"];
+const TONE: Record<string, string> = { New: "ind", Triaged: "", "Draft ready": "warn", Published: "good", Escalated: "crit", Closed: "" };
 const CATS = ["Scheme rumour", "Fake recruitment", "Doctored circular", "Synthetic media", "Public safety", "Price rumour"];
 const VERDICTS = ["False", "Misleading", "Partly true", "True", "Unverified", "Not of public interest"];
 
@@ -46,6 +46,8 @@ export function Tipline() {
       await api.post(`/tipline/claims/${c.id}/transition`, { to });
       if (to === "Published") toast("Clarification published", `${c.id} is live on the Karnataka Vaarta Channel and sent to people who forwarded it.`);
       else if (to === "Escalated") toast("Escalated", `${c.id} routed to the ${c.district} district administration.`);
+      else if (to === "Closed")
+        toast("Claim closed", c.status === "Escalated" ? `${c.id} handled by the ${c.district} district administration.` : `${c.id} closed without action: not of public interest.`);
       invalidate();
     } catch (e) {
       toast("Could not update the claim", (e as Error).message);
@@ -79,7 +81,33 @@ export function Tipline() {
         </span>
       );
     if (c.status === "Published") return <span className="chip good">Live on Channel</span>;
+    if (c.status === "Closed")
+      return <span className="chip">{c.verdict === "Handled by district administration" ? "Handled by district admin" : "Closed without action"}</span>;
     return <span className="chip warn">With district admin</span>;
+  };
+  /** Secondary actions under the next step: route public-safety items, close items not of public interest, close handled escalations. */
+  const moreActs = (c: Claim) => {
+    const dis = busy === c.id;
+    const acts: React.ReactNode[] = [];
+    if (c.category === "Public safety" && ["New", "Triaged"].includes(c.status))
+      acts.push(
+        <button key="esc" className="linkbtn" disabled={dis} onClick={() => move(c, "Escalated")}>
+          Route to district admin
+        </button>,
+      );
+    if (["New", "Triaged", "Draft ready"].includes(c.status))
+      acts.push(
+        <button key="close" className="linkbtn" disabled={dis} onClick={() => move(c, "Closed")} title="Closed without action; no clarification is sent">
+          Not of public interest
+        </button>,
+      );
+    if (c.status === "Escalated")
+      acts.push(
+        <button key="done" className="linkbtn" disabled={dis} onClick={() => move(c, "Closed")}>
+          Mark handled
+        </button>,
+      );
+    return acts.length ? <div className="clm-more">{acts}</div> : null;
   };
 
   return (
@@ -89,7 +117,7 @@ export function Tipline() {
         <KpiTile l="Found false or misleading" v={pct(m.falseR, 0)} d={o.dlt(n, "fr", f) * 0.3} invert />
         <KpiTile l="Median clarification" v={m.tat.toFixed(1) + " h"} d={o.dlt(n, "tat", f) * 0.6} sp={<Spark vals={o.trend(n, m.tat, "tat", f)} col="var(--arishina)" />} invert />
         <KpiTile l="Clarifications published" v={fmt(m.claims * m.falseR * 0.7)} d={o.dlt(n, "pub", f)} />
-        <KpiTile l="Open in queue" v={String(all.filter((c) => c.status !== "Published").length)} d={o.dlt(n, "open", f)} invert />
+        <KpiTile l="Open in queue" v={String(all.filter((c) => c.status !== "Published" && c.status !== "Closed").length)} d={o.dlt(n, "open", f)} invert />
       </div>
       <div className="card s12">
         <div className="note">
@@ -111,19 +139,32 @@ export function Tipline() {
             </h3>
             <p>From the WhatsApp tipline, district offices and the analytics team. Select a claim for details.</p>
           </div>
-          <div className="seg">
-            {["All", ...CL_ORDER].map((s) => (
-              <button key={s} aria-pressed={cf === s} onClick={() => setCf(s)}>
-                {s}
-              </button>
-            ))}
-            <button onClick={() => setAdding(!adding)} aria-pressed={adding}>
-              + Log a claim
+          <div className="clm-tools">
+            <div className="seg" role="group" aria-label="Show claims with status">
+              {["All", ...CL_ORDER].map((s) => (
+                <button key={s} aria-pressed={cf === s} onClick={() => setCf(s)}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <button className="btn" onClick={() => setAdding(!adding)}>
+              {adding ? "Cancel" : "+ Log a claim"}
             </button>
           </div>
         </div>
         {adding && <NewClaim onDone={() => setAdding(false)} />}
-        {open && <ClaimPanel id={open} onClose={() => setOpen(null)} next={(c) => nextBtn(c)} />}
+        {open && (
+          <ClaimPanel
+            id={open}
+            onClose={() => setOpen(null)}
+            next={(c) => (
+              <>
+                {nextBtn(c)}
+                {moreActs(c)}
+              </>
+            )}
+          />
+        )}
         {q.length ? (
           <div className="tbw">
             <table className="tb">
@@ -160,19 +201,15 @@ export function Tipline() {
                       )}
                       {c.approvedBy && (
                         <div>
-                          <small style={{ color: "var(--muted)" }}>Approved by {c.approvedBy}</small>
+                          <small style={{ color: "var(--muted)" }}>
+                            {c.status === "Closed" ? "Closed" : "Approved"} by {c.approvedBy}
+                          </small>
                         </div>
                       )}
                     </td>
                     <td>
                       {nextBtn(c)}
-                      {c.category === "Public safety" && ["New", "Triaged"].includes(c.status) && (
-                        <div style={{ marginTop: 6 }}>
-                          <button className="linkbtn" onClick={() => move(c, "Escalated")}>
-                            Route to district admin
-                          </button>
-                        </div>
-                      )}
+                      {moreActs(c)}
                     </td>
                   </tr>
                 ))}
@@ -180,7 +217,9 @@ export function Tipline() {
             </table>
           </div>
         ) : (
-          <div className="empty">No claims with this status in {label(n)}. Use “Log a claim” to add one received outside the tipline.</div>
+          <div className="empty">
+            No claims with this status in {label(n)}. Try the citizen bot&apos;s “Is this true?” option to send one, or use “Log a claim” for one received outside the tipline.
+          </div>
         )}
       </div>
       <div className="card s4">
@@ -284,6 +323,7 @@ const ACTION: Record<string, string> = {
   "claim.Draft ready": "Clarification drafted",
   "claim.Published": "Approved and published",
   "claim.Escalated": "Routed to district administration",
+  "claim.Closed": "Closed",
 };
 
 const when = (iso: string) => new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
@@ -366,7 +406,7 @@ function ClaimPanel({ id, onClose, next }: { id: string; onClose: () => void; ne
               )}
               {c.approvedBy && (
                 <>
-                  <dt>Approved by</dt>
+                  <dt>{c.status === "Closed" ? "Closed by" : "Approved by"}</dt>
                   <dd>{c.approvedBy}</dd>
                 </>
               )}
