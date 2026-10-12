@@ -6,6 +6,7 @@ import { NAV, OUTREACH } from "@/lib/nav";
 import { DEFAULT_FILTERS, Filters, Outreach, sig } from "@/lib/outreach";
 import { AppCtx, AppState, clearApiCache, Toasts, useToasts } from "@/lib/store";
 import type { AgentRun, Meta, User } from "@/lib/types";
+import { ChangePassword } from "./PasswordDialog";
 import { ThemeButton } from "./Theme";
 import { ViewSwitch } from "@/views/ViewSwitch";
 
@@ -29,6 +30,7 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
   const [uploadTarget, setUploadTarget] = useState<string | null>(null);
   const [outreach, setOutreach] = useState<Outreach | null>(null);
   const { toasts, toast } = useToasts();
+  const [pwOpen, setPwOpen] = useState(false);
 
   useEffect(() => {
     if (fresh) toast("Signed in", `${user.title} · ${user.scope}`);
@@ -141,6 +143,9 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
               <small>{user.scope}</small>
             </span>
           </div>
+          <button className="iconbtn" title="Change your password" onClick={() => setPwOpen(true)}>
+            Password
+          </button>
           <ThemeButton />
           <button
             className="iconbtn"
@@ -152,6 +157,15 @@ export function Console({ user, meta, fresh, onSignOut }: { user: User; meta: Me
             Sign out
           </button>
         </header>
+        {pwOpen && (
+          <ChangePassword
+            onClose={() => setPwOpen(false)}
+            onDone={() => {
+              setPwOpen(false);
+              toast("Password changed", "Use the new password next time you sign in.");
+            }}
+          />
+        )}
         <div className="appgrid">
           <nav className="snav" aria-label="Modules">
             {NAV.map((g) => {

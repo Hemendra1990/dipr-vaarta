@@ -6,7 +6,7 @@ export const NAV: { g: string; items: [string, string][] }[] = [
   { g: "Press & media", items: [["press", "Press & journalists"], ["welfare", "Journalist welfare"], ["events", "Events & coverage"], ["election", "Election period"]] },
   { g: "Field", items: [["offices", "District offices"], ["field", "Field & folk publicity"], ["outdoor", "Outdoor displays"]] },
   { g: "Culture & records", items: [["film", "Film sector"], ["publications", "Publications"], ["archive", "Photo & film archive"], ["grants", "Academies & grants"]] },
-  { g: "Administration", items: [["admin", "Offices & staff"], ["rti", "RTI applications"], ["upload", "Data upload"]] },
+  { g: "Administration", items: [["admin", "Offices & staff"], ["rti", "RTI applications"], ["upload", "Data upload"], ["users", "Users & access"], ["audit", "Audit log"]] },
 ];
 
 /** Modules that use the outreach drill and the global Period / Scheme / Language / Audience slicers. */
