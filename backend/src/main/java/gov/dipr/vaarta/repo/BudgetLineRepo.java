@@ -12,6 +12,8 @@ public interface BudgetLineRepo extends JpaRepository<BudgetLine, Long> {
     @Query("select b from BudgetLine b where (:dept is null or b.department = :dept) order by b.id")
     List<BudgetLine> findScoped(@Param("dept") String department);
 
+    List<BudgetLine> findByFyAndDepartmentAndChannel(String fy, String department, String channel);
+
     @Modifying @Query("delete from BudgetLine b")
     int deleteAllRows();
 

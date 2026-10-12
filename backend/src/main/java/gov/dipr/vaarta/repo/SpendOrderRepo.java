@@ -16,6 +16,11 @@ public interface SpendOrderRepo extends JpaRepository<SpendOrder, Long> {
             order by s.id""")
     List<SpendOrder> findScoped(@Param("district") String district, @Param("dept") String department, @Param("vendor") String vendorId);
 
+    java.util.Optional<SpendOrder> findFirstByCampaignIdOrderByIdAsc(String campaignId);
+
+    @Query("select s.roNo from SpendOrder s")
+    List<String> allRoNumbers();
+
     @Modifying @Query("delete from SpendOrder s")
     int deleteAllRows();
 
